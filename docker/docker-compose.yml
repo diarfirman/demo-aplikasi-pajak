@@ -1,0 +1,87 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: pajak-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: pajak
+      RABBITMQ_DEFAULT_PASS: pajak123
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: rabbitmq-diagnostics -q ping
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pajak-network
+
+  taxapi:
+    build:
+      context: ../src/TaxApi
+      dockerfile: Dockerfile
+    container_name: pajak-taxapi
+    ports:
+      - "5001:5001"
+    environment:
+      - Elasticsearch__Url=https://elasticsearch-id.es.ap-southeast-1.aws.found.io:443
+      - Elasticsearch__ApiKey=MnlMam9wd0JIVVR3QWtfcm45ZlI6U2N3LXA1SjgxVVpDQ01wNFVPVXJadw==
+      - RabbitMq__Host=rabbitmq
+      - RabbitMq__Port=5672
+      - RabbitMq__Username=pajak
+      - RabbitMq__Password=pajak123
+      - Urls=http://0.0.0.0:5001
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    networks:
+      - pajak-network
+    restart: unless-stopped
+
+  report-processor:
+    build:
+      context: ../src/ReportProcessor
+      dockerfile: Dockerfile
+    container_name: pajak-report-processor
+    environment:
+      - RabbitMq__Host=rabbitmq
+      - RabbitMq__Port=5672
+      - RabbitMq__Username=pajak
+      - RabbitMq__Password=pajak123
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - pajak-network
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+    container_name: pajak-frontend
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_URL=http://localhost:5001
+    depends_on:
+      - taxapi
+    networks:
+      - pajak-network
+    restart: unless-stopped
+
+volumes:
+  rabbitmq-data:
+    driver: local
+
+networks:
+  pajak-network:
+    name: pajak-network
+    driver: bridge
