@@ -396,7 +396,7 @@ var tracingData = DistributedTracingData.TryDeserializeFromString(incomingTracep
 
 Satu traceId yang sama muncul sebagai satu trace tunggal di APM, meskipun melewati 3 proses berbeda.
 
-Contoh nyata dengan `traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a`:
+Contoh dengan `traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a`:
 
 ```
 traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a
@@ -423,8 +423,8 @@ traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a
 │                           └── ES UpdateReport  31 ms
 ```
 
-<!-- Screenshot trace waterfall di Elastic APM dapat ditempatkan di sini -->
-<!-- Contoh: ![Trace Waterfall](docs/trace-waterfall.png) -->
+<img width="1000" height="600" alt="image" src="https://github.com/user-attachments/assets/0d2b199f-d547-44f2-a0ca-cb190bfaea70" />
+
 
 ### Ringkasan: Kapan Trace Baru, Kapan Terusan?
 
