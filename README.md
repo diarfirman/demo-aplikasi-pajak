@@ -2,6 +2,8 @@
 
 A simple tax management demo application showcasing **RabbitMQ back-and-forth messaging** and **end-to-end distributed tracing** with Elastic APM.
 
+<img width="1000" height="600" alt="image" src="https://github.com/user-attachments/assets/8efd1d5c-1ad7-4625-8343-2769a6a5e80c" />
+
 > Indonesian version: [README.id.md](README.id.md)
 
 ## Tech Stack
