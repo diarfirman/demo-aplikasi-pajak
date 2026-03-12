@@ -345,8 +345,8 @@ Misalkan user klik "Submit" di browser. Berikut bagaimana `traceId` yang sama me
 
 **Langkah 1 — Browser (RUM Agent)**
 ```
-Browser kirim: POST http://localhost:5001/api/reports/abc123/submit
-Header otomatis:  traceparent: 00-aabbccddeeff00112233445566778899-1111111111111111-01
+Browser kirim: POST http://localhost:5001/api/reports/5281ff79-7241-4be8-9a3b-ac1dfa1c4be9/submit
+Header otomatis:  traceparent: 00-7152c87c4d97eaf4a41c8b6f8ce4434a-<spanId-browser>-01
                                   ↑ traceId baru di-generate RUM agent
 ```
 
@@ -354,15 +354,15 @@ Header otomatis:  traceparent: 00-aabbccddeeff00112233445566778899-1111111111111
 ```
 APM agent .NET baca header traceparent dari request
 → Buat child transaction "POST /api/reports/{id}/submit"
-→ traceId: aabbccddeeff00112233445566778899  (sama dengan browser)
-→ parentSpanId: 1111111111111111  (span milik browser)
+→ traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a  (sama dengan browser)
+→ parentSpanId: <spanId-browser>
 ```
 
 **Langkah 3 — TaxApi PUBLISH ke RabbitMQ**
 ```csharp
 span.OutgoingDistributedTracingData?.SerializeToString()
 // Menghasilkan:
-// "00-aabbccddeeff00112233445566778899-2222222222222222-01"
+// "00-7152c87c4d97eaf4a41c8b6f8ce4434a-<spanId-taxapi-publish>-01"
 //   traceId SAMA, parentSpanId = ID span PUBLISH TaxApi
 ```
 
@@ -370,52 +370,61 @@ Header ini dimasukkan ke pesan RabbitMQ.
 
 **Langkah 4 — ReportProcessor CONSUME dari RabbitMQ**
 ```csharp
-var incomingTraceparent = "00-aabbccddeeff00112233445566778899-2222222222222222-01";
+var incomingTraceparent = "00-7152c87c4d97eaf4a41c8b6f8ce4434a-<spanId-taxapi-publish>-01";
 var tracingData = DistributedTracingData.TryDeserializeFromString(incomingTraceparent);
 // tracingData != null → child transaction
-// traceId: aabbccddeeff00112233445566778899  (MASIH SAMA)
+// traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a  (MASIH SAMA)
 ```
 
 **Langkah 5 — ReportProcessor PUBLISH result ke RabbitMQ**
 ```csharp
 transaction.OutgoingDistributedTracingData?.SerializeToString()
 // Menghasilkan:
-// "00-aabbccddeeff00112233445566778899-3333333333333333-01"
+// "00-7152c87c4d97eaf4a41c8b6f8ce4434a-<spanId-reportprocessor>-01"
 //   traceId SAMA, parentSpanId = ID transaction ReportProcessor
 ```
 
 **Langkah 6 — TaxApi CONSUME result dari RabbitMQ**
 ```csharp
-var incomingTraceparent = "00-aabbccddeeff00112233445566778899-3333333333333333-01";
+var incomingTraceparent = "00-7152c87c4d97eaf4a41c8b6f8ce4434a-<spanId-reportprocessor>-01";
 var tracingData = DistributedTracingData.TryDeserializeFromString(incomingTraceparent);
 // tracingData != null → child transaction
-// traceId: aabbccddeeff00112233445566778899  (MASIH SAMA)
+// traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a  (MASIH SAMA)
 ```
 
 ### Visualisasi Trace di APM UI
 
-Satu traceId yang sama muncul sebagai satu trace tunggal di APM, meskipun melewati 3 proses berbeda:
+Satu traceId yang sama muncul sebagai satu trace tunggal di APM, meskipun melewati 3 proses berbeda.
+
+Contoh nyata dengan `traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a`:
 
 ```
-traceId: aabbccddeeff00112233445566778899
+traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a
 │
-├── [Browser] Page load / Axios POST             span: 1111111111111111
+├── [pajak-frontend]  Click - button  171 ms
 │       │
-│       └── [TaxApi] POST /api/reports/{id}/submit   span: 2222222222222222
+│       └── POST http://localhost:5001/api/reports/.../submit  170 ms
 │                │
-│                └── span: RabbitMQ PUBLISH pajak.laporan.submitted
-│                           │  (header: traceparent dengan span 2222...)
+│       [pajak-taxapi]  HTTP 2xx POST /api/reports/{id}/submit  153 ms
+│                │
+│                ├── GET elasticsearch (baca data laporan)  29 ms
+│                ├── PUT elasticsearch (update status → Submitted)  123 ms
+│                └── RabbitMQ PUBLISH pajak.laporan.submitted  481 µs
+│                           │  (header: traceparent 7152c87c...)
 │                           ▼
-│               [ReportProcessor] RabbitMQ CONSUME     span: 3333333333333333
-│                           │   (parent: span 2222... dari TaxApi)
-│                           └── span: ValidasiLaporan
-│                               │  (header: traceparent dengan span 3333...)
+│       [pajak-report-processor]  RabbitMQ CONSUME pajak.laporan.submitted  2,014 ms
+│                           │
+│                           └── ValidasiLaporan  122 µs
+│                               │  (header: traceparent 7152c87c... di result)
 │                               ▼
-│               [TaxApi] RabbitMQ CONSUME result        span: 4444444444444444
-│                           │   (parent: span 3333... dari ReportProcessor)
-│                           ├── span: ES UpdateReport
-│                           └── span: ES IndexNotification
+│       [pajak-taxapi]  RabbitMQ CONSUME pajak.laporan.result  95 ms
+│                           │
+│                           ├── GET elasticsearch  28 ms
+│                           └── ES UpdateReport  31 ms
 ```
+
+<!-- Screenshot trace waterfall di Elastic APM dapat ditempatkan di sini -->
+<!-- Contoh: ![Trace Waterfall](docs/trace-waterfall.png) -->
 
 ### Ringkasan: Kapan Trace Baru, Kapan Terusan?
 
