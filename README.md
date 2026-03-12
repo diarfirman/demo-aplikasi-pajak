@@ -65,12 +65,12 @@ Create `src/TaxApi/appsettings.Development.json`:
 ```json
 {
   "Elasticsearch": {
-    "Url": "https://your.elasticsearch.url",
+    "Url": "https://your.elasticsearch.url:443",
     "ApiKey": "<elasticsearch-api-key>"
   },
   "ElasticApm": {
     "SecretToken": "<apm-secret-token>",
-    "ServerUrl": "https://your.apm.server.url"
+    "ServerUrl": "https://your.apm.server.url:443"
   }
 }
 ```
@@ -83,7 +83,7 @@ Create `src/ReportProcessor/appsettings.Development.json`:
 {
   "ElasticApm": {
     "SecretToken": "<apm-secret-token>",
-    "ServerUrl": "https://your.apm.server.url"
+    "ServerUrl": "https://your.apm.server.url:443"
   }
 }
 ```
@@ -97,7 +97,7 @@ Create `src/ReportProcessor/appsettings.Development.json`:
 Create `frontend/.env.local`:
 
 ```env
-VITE_ELASTIC_APM_SERVER_URL=https://your.apm.server.url
+VITE_ELASTIC_APM_SERVER_URL=https://your.apm.server.url:443
 VITE_ELASTIC_APM_SECRET_TOKEN=<apm-secret-token>
 ```
 
@@ -157,7 +157,7 @@ The APM agent is configured via the `ElasticApm` section in `appsettings.json`:
   "ElasticApm": {
     "ServiceName": "pajak-taxapi",
     "SecretToken": "YOUR_APM_SECRET_TOKEN",
-    "ServerUrl": "https://your.apm.server.url",
+    "ServerUrl": "https://your.apm.server.url:443",
     "Environment": "development",
     "LogLevel": "Error"
   }

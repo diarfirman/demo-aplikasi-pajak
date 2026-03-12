@@ -63,12 +63,12 @@ Buat file `src/TaxApi/appsettings.Development.json`:
 ```json
 {
   "Elasticsearch": {
-    "Url": "https://your.elasticsearch.url",
+    "Url": "https://your.elasticsearch.url:443",
     "ApiKey": "<elasticsearch-api-key>"
   },
   "ElasticApm": {
     "SecretToken": "<apm-secret-token>",
-    "ServerUrl": "https://your.apm.server.url"
+    "ServerUrl": "https://your.apm.server.url:443"
   }
 }
 ```
@@ -81,7 +81,7 @@ Buat file `src/ReportProcessor/appsettings.Development.json`:
 {
   "ElasticApm": {
     "SecretToken": "<apm-secret-token>",
-    "ServerUrl": "https://your.apm.server.url"
+    "ServerUrl": "https://your.apm.server.url:443"
   }
 }
 ```
@@ -142,7 +142,7 @@ APM agent dikonfigurasi via section `ElasticApm` di `appsettings.json`:
   "ElasticApm": {
     "ServiceName": "pajak-taxapi",
     "SecretToken": "YOUR_APM_SECRET_TOKEN",
-    "ServerUrl": "https://your.apm.server.url",
+    "ServerUrl": "https://your.apm.server.url:443",
     "Environment": "development",
     "LogLevel": "Error"
   }
