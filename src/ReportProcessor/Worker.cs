@@ -40,7 +40,9 @@ public class Worker : BackgroundService
             }
         }
 
-        await _mqService.StartConsumingAsync(ProcessReportAsync, stoppingToken);
+        await _mqService.StartConsumingAsync(
+            (report, traceparent) => ProcessReportAsync(report, traceparent),
+            stoppingToken);
 
         _logger.LogInformation("ReportProcessor ready. Waiting for reports to review...");
 
@@ -48,55 +50,71 @@ public class Worker : BackgroundService
         await Task.Delay(Timeout.Infinite, stoppingToken);
     }
 
-    private async Task<ReportResultMessage> ProcessReportAsync(ReportSubmittedMessage report)
+    private async Task<(ReportResultMessage result, string? traceparent)> ProcessReportAsync(
+        ReportSubmittedMessage report, string? incomingTraceparent)
     {
-        return await Agent.Tracer.CaptureTransaction(
-            $"RabbitMQ CONSUME pajak.laporan.submitted",
+        // Link transaction ke trace TaxApi via distributed tracing context
+        var tracingData = DistributedTracingData.TryDeserializeFromString(incomingTraceparent);
+        var transaction = Agent.Tracer.StartTransaction(
+            "RabbitMQ CONSUME pajak.laporan.submitted",
             ApiConstants.TypeMessaging,
-            async (transaction) =>
+            tracingData);
+
+        try
+        {
+            transaction.SetLabel("report_id", report.ReportId);
+            transaction.SetLabel("tax_payer_id", report.TaxPayerId);
+            transaction.SetLabel("period", report.Period ?? "");
+
+            // Simulasi review dengan delay 2-3 detik (seperti proses nyata)
+            await Task.Delay(TimeSpan.FromSeconds(2));
+
+            var validationResult = await transaction.CaptureSpan(
+                "ValidasiLaporan",
+                ApiConstants.TypeApp,
+                () =>
+                {
+                    var r = ValidasiLaporan(report);
+                    return Task.FromResult(r);
+                }
+            );
+
+            // Serialize traceparent untuk diteruskan ke TaxApi via result message header
+            var outgoingTraceparent = transaction.OutgoingDistributedTracingData?.SerializeToString();
+
+            if (validationResult.IsValid)
             {
-                transaction.SetLabel("report_id", report.ReportId);
-                transaction.SetLabel("tax_payer_id", report.TaxPayerId);
-                transaction.SetLabel("period", report.Period ?? "");
-
-                // Simulasi review dengan delay 2-3 detik (seperti proses nyata)
-                await Task.Delay(TimeSpan.FromSeconds(2));
-
-                var result = await transaction.CaptureSpan(
-                    "ValidasiLaporan",
-                    ApiConstants.TypeApp,
-                    () =>
-                    {
-                        var r = ValidasiLaporan(report);
-                        return Task.FromResult(r);
-                    }
-                );
-
-                if (result.IsValid)
-                {
-                    transaction.SetLabel("result", "approved");
-                    _logger.LogInformation("Report {Id} APPROVED: {Reason}", report.ReportId, result.Reason);
-                    return new ReportResultMessage(
-                        ReportId: report.ReportId,
-                        TaxPayerId: report.TaxPayerId,
-                        IsApproved: true,
-                        RejectionReason: null
-                    );
-                }
-                else
-                {
-                    transaction.SetLabel("result", "rejected");
-                    transaction.SetLabel("rejection_reason", result.Reason);
-                    _logger.LogWarning("Report {Id} REJECTED: {Reason}", report.ReportId, result.Reason);
-                    return new ReportResultMessage(
-                        ReportId: report.ReportId,
-                        TaxPayerId: report.TaxPayerId,
-                        IsApproved: false,
-                        RejectionReason: result.Reason
-                    );
-                }
+                transaction.SetLabel("result", "approved");
+                _logger.LogInformation("Report {Id} APPROVED: {Reason}", report.ReportId, validationResult.Reason);
+                return (new ReportResultMessage(
+                    ReportId: report.ReportId,
+                    TaxPayerId: report.TaxPayerId,
+                    IsApproved: true,
+                    RejectionReason: null
+                ), outgoingTraceparent);
             }
-        );
+            else
+            {
+                transaction.SetLabel("result", "rejected");
+                transaction.SetLabel("rejection_reason", validationResult.Reason);
+                _logger.LogWarning("Report {Id} REJECTED: {Reason}", report.ReportId, validationResult.Reason);
+                return (new ReportResultMessage(
+                    ReportId: report.ReportId,
+                    TaxPayerId: report.TaxPayerId,
+                    IsApproved: false,
+                    RejectionReason: validationResult.Reason
+                ), outgoingTraceparent);
+            }
+        }
+        catch (Exception ex)
+        {
+            transaction.CaptureException(ex);
+            throw;
+        }
+        finally
+        {
+            transaction.End();
+        }
     }
 
     private static (bool IsValid, string Reason) ValidasiLaporan(ReportSubmittedMessage report)

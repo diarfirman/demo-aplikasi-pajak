@@ -19,3 +19,8 @@ dist/
 
 # Claude
 .claude/
+
+# Credential overrides — buat appsettings.Development.json lokal dengan nilai asli
+appsettings.Development.json
+appsettings.Production.json
+appsettings.Staging.json

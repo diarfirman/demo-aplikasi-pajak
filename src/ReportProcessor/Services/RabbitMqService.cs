@@ -42,7 +42,9 @@ public class RabbitMqConsumerService : IDisposable
         _logger.LogInformation("RabbitMQ connected. Waiting for messages on queue: {Queue}", SubmittedQueue);
     }
 
-    public async Task StartConsumingAsync(Func<ReportSubmittedMessage, Task<ReportResultMessage>> handler, CancellationToken ct)
+    public async Task StartConsumingAsync(
+        Func<ReportSubmittedMessage, string?, Task<(ReportResultMessage result, string? traceparent)>> handler,
+        CancellationToken ct)
     {
         if (_channel is null) throw new InvalidOperationException("Not connected to RabbitMQ");
 
@@ -62,11 +64,20 @@ public class RabbitMqConsumerService : IDisposable
 
                 _logger.LogInformation("Processing report: {ReportId} for {TaxPayer}", message.ReportId, message.TaxPayerName);
 
-                var result = await handler(message);
+                // Extract traceparent dari header pesan masuk, teruskan ke handler
+                var incomingTraceparent = GetTraceparentFromHeaders(args.BasicProperties.Headers);
+                var (result, outgoingTraceparent) = await handler(message, incomingTraceparent);
 
-                // Publish result back to TaxApi
+                // Publish result back ke TaxApi dengan traceparent agar trace terhubung
                 var resultBody = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(result));
-                var props = new BasicProperties { Persistent = true };
+                var props = new BasicProperties
+                {
+                    Persistent = true,
+                    Headers = new Dictionary<string, object?>
+                    {
+                        { "elastic-apm-traceparent", Encoding.UTF8.GetBytes(outgoingTraceparent ?? "") }
+                    }
+                };
                 await _channel.BasicPublishAsync("", ResultQueue, false, props, resultBody);
 
                 _logger.LogInformation("Published result for report {ReportId}: Approved={IsApproved}", result.ReportId, result.IsApproved);
@@ -81,6 +92,16 @@ public class RabbitMqConsumerService : IDisposable
         };
 
         await _channel.BasicConsumeAsync(SubmittedQueue, autoAck: false, consumer: consumer, cancellationToken: ct);
+    }
+
+    private static string? GetTraceparentFromHeaders(IDictionary<string, object?>? headers)
+    {
+        if (headers?.TryGetValue("elastic-apm-traceparent", out var val) == true)
+        {
+            if (val is byte[] bytes) return Encoding.UTF8.GetString(bytes);
+            if (val is string str) return str;
+        }
+        return null;
     }
 
     public void Dispose()
