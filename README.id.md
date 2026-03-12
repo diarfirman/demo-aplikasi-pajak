@@ -2,6 +2,9 @@
 
 Demo aplikasi pengelolaan pajak sederhana yang menampilkan komunikasi dua arah (back-and-forth) melalui RabbitMQ dan distributed tracing end-to-end dengan Elastic APM.
 
+<img width="1000" height="600" alt="image" src="https://github.com/user-attachments/assets/aafee06a-1102-4984-956d-5c97e2221ffa" />
+
+
 ## Stack Teknologi
 
 | Layer | Teknologi |
