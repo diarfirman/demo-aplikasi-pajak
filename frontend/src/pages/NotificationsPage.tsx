@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react';
 import { notificationApi, formatDate } from '../services/api';
 import type { Notification } from '../services/api';
+import HelpPanel from '../components/HelpPanel';
+
+const HELP_NOTES = [
+  { icon: '🤖', text: 'Notifikasi dibuat otomatis oleh ReportProcessor via RabbitMQ — bukan oleh TaxApi secara langsung.' },
+  { icon: '🔄', text: 'Halaman ini auto-refresh setiap 5 detik. Gunakan tombol Refresh untuk memuat secara manual.' },
+  { icon: '✅', text: 'Notifikasi hijau = laporan disetujui. Notifikasi merah = laporan ditolak beserta alasannya.' },
+  { icon: '🔗', text: 'Untuk melihat trace lengkap alur notifikasi, buka Elastic APM → Traces dan cari transaksi "POST /api/reports/{id}/submit".' },
+];
 
 const TYPE_STYLES: Record<string, { bg: string; icon: string }> = {
   Success: { bg: '#dcfce7', icon: '✅' },
@@ -34,17 +42,17 @@ export default function NotificationsPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>Notifikasi</h2>
         <button onClick={load} className="btn-secondary" style={{ fontSize: 13 }}>🔄 Refresh</button>
       </div>
 
-      {error && <div className="alert-error">{error}</div>}
+      <HelpPanel
+        title="Tentang halaman Notifikasi:"
+        notes={HELP_NOTES}
+      />
 
-      <p style={{ color: '#666', marginBottom: 16, fontSize: 14 }}>
-        Notifikasi dibuat otomatis oleh ReportProcessor via RabbitMQ setelah laporan diproses.
-        Halaman ini auto-refresh setiap 5 detik.
-      </p>
+      {error && <div className="alert-error">{error}</div>}
 
       {loading ? (
         <div className="loading">Memuat...</div>

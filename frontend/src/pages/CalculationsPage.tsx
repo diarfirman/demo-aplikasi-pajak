@@ -1,6 +1,21 @@
 import { useState, useEffect } from 'react';
 import { calculationApi, taxPayerApi, formatRupiah, formatDate } from '../services/api';
 import type { TaxCalculation, TaxPayer } from '../services/api';
+import HelpPanel from '../components/HelpPanel';
+
+const HELP_PPH_STEPS = [
+  { step: 1, title: 'Pilih tab "PPh Pasal 21"', desc: '— untuk hitung pajak penghasilan karyawan.' },
+  { step: 2, title: 'Pilih Wajib Pajak', desc: '— harus sudah terdaftar di halaman Wajib Pajak.' },
+  { step: 3, title: 'Pilih Status Kawin', desc: '— menentukan PTKP: TK/0 = Rp 54 jt, K/0 = Rp 58,5 jt, K/1 = Rp 63 jt, dst.' },
+  { step: 4, title: 'Isi Penghasilan Bruto/Bulan', desc: '— disetahunkan otomatis. Contoh: Rp 10.000.000.' },
+  { step: 5, title: 'Isi Periode', desc: '— format: YYYY-MM. Contoh: 2025-01 untuk Januari 2025.' },
+  { step: 6, title: 'Klik "Hitung PPh 21"', desc: '— hasil tampil di bawah form dan tersimpan ke riwayat.' },
+];
+
+const HELP_PPH_NOTES = [
+  { icon: '📊', text: 'Tarif progresif: 5% (s.d. Rp 60 jt) · 15% (Rp 60–250 jt) · 25% (Rp 250–500 jt) · 30% (Rp 500 jt–5 M) · 35% (di atas Rp 5 M).' },
+  { icon: '💡', text: 'PPN 12%: masukkan nilai transaksi (DPP), sistem hitung PPN = DPP × 12%.' },
+];
 
 export default function CalculationsPage() {
   const [calculations, setCalculations] = useState<TaxCalculation[]>([]);
@@ -76,7 +91,14 @@ export default function CalculationsPage() {
 
   return (
     <div>
-      <h2 style={{ marginBottom: 24 }}>Perhitungan Pajak</h2>
+      <h2 style={{ marginBottom: 16 }}>Perhitungan Pajak</h2>
+
+      <HelpPanel
+        title="Cara menghitung pajak:"
+        steps={HELP_PPH_STEPS}
+        notes={HELP_PPH_NOTES}
+      />
+
       {error && <div className="alert-error">{error}</div>}
 
       <div className="card" style={{ marginBottom: 24 }}>

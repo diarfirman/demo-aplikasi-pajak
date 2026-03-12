@@ -1,6 +1,20 @@
 import { useState, useEffect } from 'react';
 import { taxPayerApi, formatDate } from '../services/api';
 import type { TaxPayer } from '../services/api';
+import HelpPanel from '../components/HelpPanel';
+
+const HELP_STEPS = [
+  { step: 1, title: 'Klik "+ Daftar Baru"', desc: '— buka formulir pendaftaran.' },
+  { step: 2, title: 'Isi NPWP', desc: '— format: XX.XXX.XXX.X-XXX.XXX (15 digit). Wajib diisi.' },
+  { step: 3, title: 'Pilih Jenis', desc: '— Orang Pribadi (OP) untuk individu, Badan Usaha untuk perusahaan.' },
+  { step: 4, title: 'Isi Nama & Email', desc: '— wajib diisi. Telepon dan alamat bersifat opsional.' },
+  { step: 5, title: 'Klik "Daftarkan"', desc: '— data tersimpan dan muncul di tabel.' },
+];
+
+const HELP_NOTES = [
+  { icon: '💡', text: 'Daftarkan wajib pajak lebih dulu — data ini dibutuhkan di halaman Perhitungan dan Laporan.' },
+  { icon: '⚠️', text: 'NPWP bersifat unik. Pendaftaran dengan NPWP yang sama akan ditolak.' },
+];
 
 export default function TaxPayersPage() {
   const [taxpayers, setTaxpayers] = useState<TaxPayer[]>([]);
@@ -47,12 +61,18 @@ export default function TaxPayersPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>Wajib Pajak</h2>
         <button onClick={() => setShowForm(!showForm)} className="btn-primary">
           {showForm ? 'Tutup' : '+ Daftar Baru'}
         </button>
       </div>
+
+      <HelpPanel
+        title="Cara mendaftarkan Wajib Pajak baru:"
+        steps={HELP_STEPS}
+        notes={HELP_NOTES}
+      />
 
       {error && <div className="alert-error">{error}</div>}
 

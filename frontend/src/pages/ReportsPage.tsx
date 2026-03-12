@@ -1,6 +1,23 @@
 import { useState, useEffect, useCallback } from 'react';
 import { reportApi, taxPayerApi, formatRupiah } from '../services/api';
 import type { TaxReport, TaxPayer } from '../services/api';
+import HelpPanel from '../components/HelpPanel';
+
+const HELP_STEPS = [
+  { step: 1, title: 'Klik "+ Buat Laporan"', desc: '— buka formulir pembuatan laporan SPT.' },
+  { step: 2, title: 'Pilih Wajib Pajak & Jenis SPT', desc: '— SPT Tahunan, Masa PPh, atau Masa PPN.' },
+  { step: 3, title: 'Isi Periode & Nominal', desc: '— Periode: "2024" (tahunan) atau "2025-01" (masa). Total pajak tidak boleh negatif atau > 50% penghasilan.' },
+  { step: 4, title: 'Klik "Buat Laporan"', desc: '— laporan tersimpan dengan status Draft.' },
+  { step: 5, title: 'Klik "Submit" pada laporan Draft', desc: '— laporan dikirim ke RabbitMQ queue untuk divalidasi.' },
+  { step: 6, title: 'Tunggu 2–3 detik', desc: '— ReportProcessor memvalidasi dan mengirim hasil. Halaman auto-refresh setiap 3 detik.' },
+  { step: 7, title: 'Status berubah: Disetujui / Ditolak', desc: '— notifikasi otomatis dibuat di halaman Notifikasi.' },
+];
+
+const HELP_NOTES = [
+  { icon: '🐇', text: 'Submit laporan memicu flow RabbitMQ: TaxApi PUBLISH → ReportProcessor CONSUME & validasi → PUBLISH result → TaxApi CONSUME & update.' },
+  { icon: '❌', text: 'Laporan ditolak jika: NPWP kosong, total penghasilan ≤ 0, pajak negatif, atau pajak > 50% penghasilan.' },
+  { icon: '🔄', text: 'Laporan berstatus "Menunggu Review" akan auto-refresh setiap 3 detik.' },
+];
 
 const STATUS_COLORS: Record<string, string> = {
   Draft: 'badge-gray',
@@ -93,12 +110,18 @@ export default function ReportsPage() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <h2 style={{ margin: 0 }}>Laporan SPT</h2>
         <button onClick={() => setShowForm(!showForm)} className="btn-primary">
           {showForm ? 'Tutup' : '+ Buat Laporan'}
         </button>
       </div>
+
+      <HelpPanel
+        title="Cara membuat dan submit laporan SPT:"
+        steps={HELP_STEPS}
+        notes={HELP_NOTES}
+      />
 
       {pollingIds.size > 0 && (
         <div className="alert-info">
