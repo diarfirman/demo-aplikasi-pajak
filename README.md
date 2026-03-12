@@ -1,64 +1,66 @@
-# Demo Aplikasi Pajak
+# Demo Tax Application (Aplikasi Pajak)
 
-Demo aplikasi pengelolaan pajak sederhana yang menampilkan komunikasi dua arah (back-and-forth) melalui RabbitMQ dan distributed tracing end-to-end dengan Elastic APM.
+A simple tax management demo application showcasing **RabbitMQ back-and-forth messaging** and **end-to-end distributed tracing** with Elastic APM.
 
-## Stack Teknologi
+> Indonesian version: [README.id.md](README.id.md)
 
-| Layer | Teknologi |
+## Tech Stack
+
+| Layer | Technology |
 |-------|-----------|
 | Frontend | React 18 + TypeScript + Vite |
 | API | .NET 9 Minimal API |
 | Worker | .NET 9 Background Service |
-| Messaging | RabbitMQ (direct AMQP, tanpa MassTransit) |
+| Messaging | RabbitMQ (direct AMQP, no MassTransit) |
 | Database | Elasticsearch (cloud) |
 | Observability | Elastic APM (distributed tracing) |
 
-## Arsitektur
+## Architecture
 
 ```
 Frontend (React)  :5173
         │ HTTP (Axios)
         ▼
 TaxApi (.NET 9)   :5001
-  ├── CRUD: Wajib Pajak, Perhitungan, Laporan, Notifikasi
+  ├── CRUD: Taxpayers, Calculations, Reports, Notifications
   ├── PUBLISH → pajak.laporan.submitted
-  └── CONSUME ← pajak.laporan.result → update ES + buat notifikasi
+  └── CONSUME ← pajak.laporan.result → update ES + create notification
         │ AMQP ↕
      RabbitMQ
         │ AMQP ↕
 ReportProcessor (.NET 9 Worker)
-  ├── CONSUME ← pajak.laporan.submitted → validasi laporan
+  ├── CONSUME ← pajak.laporan.submitted → validate report
   └── PUBLISH → pajak.laporan.result (approved/rejected)
 ```
 
-**Flow back-and-forth:**
+**Back-and-forth flow:**
 ```
 POST /api/reports/{id}/submit
-  → TaxApi: status = "Submitted", PUBLISH ke MQ
+  → TaxApi: status = "Submitted", PUBLISH to MQ
        ↓
-  ReportProcessor: CONSUME, validasi (NPWP, total, dll.)
-  → PUBLISH result ke MQ
+  ReportProcessor: CONSUME, validate (NPWP, totals, etc.)
+  → PUBLISH result to MQ
        ↓
-  TaxApi: CONSUME result, update status + buat notifikasi
+  TaxApi: CONSUME result, update status + create notification
        ↓
 GET /api/reports/{id}  → status = "Approved" / "Rejected"
-GET /api/notifications → notifikasi baru muncul
+GET /api/notifications → new notification appears
 ```
 
 ## Prerequisites
 
-- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (untuk RabbitMQ)
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) (for RabbitMQ)
 - [.NET 9 SDK](https://dotnet.microsoft.com/download/dotnet/9.0)
 - [Node.js 18+](https://nodejs.org/)
-- Akun [Elastic Cloud](https://cloud.elastic.co/) (untuk Elasticsearch + APM)
+- [Elastic Cloud](https://cloud.elastic.co/) account (for Elasticsearch + APM)
 
-## Setup Konfigurasi
+## Configuration
 
-Credentials **tidak** disimpan di repository. Buat file override lokal:
+Credentials are **not** stored in the repository. Create local override files:
 
 ### TaxApi
 
-Buat file `src/TaxApi/appsettings.Development.json`:
+Create `src/TaxApi/appsettings.Development.json`:
 
 ```json
 {
@@ -75,7 +77,7 @@ Buat file `src/TaxApi/appsettings.Development.json`:
 
 ### ReportProcessor
 
-Buat file `src/ReportProcessor/appsettings.Development.json`:
+Create `src/ReportProcessor/appsettings.Development.json`:
 
 ```json
 {
@@ -86,16 +88,29 @@ Buat file `src/ReportProcessor/appsettings.Development.json`:
 }
 ```
 
-> File `appsettings.Development.json` sudah ada di `.gitignore` — tidak akan ter-commit.
+> `appsettings.Development.json` is already in `.gitignore` — it will never be committed.
+>
+> .NET automatically loads this file when `ASPNETCORE_ENVIRONMENT=Development` (default when running `dotnet run`), overriding the placeholder values in `appsettings.json`.
 
-## Cara Menjalankan
+### Frontend
+
+Create `frontend/.env.local`:
+
+```env
+VITE_ELASTIC_APM_SERVER_URL=https://<apm-id>.apm.<region>.aws.cloud.es.io:443
+VITE_ELASTIC_APM_SECRET_TOKEN=<apm-secret-token>
+```
+
+> If this file is absent, the frontend RUM agent will be disabled automatically — the app still runs, just without frontend traces.
+
+## Running Locally
 
 **1. Start RabbitMQ:**
 ```bash
 cd docker
 docker compose up rabbitmq -d
 ```
-UI RabbitMQ: http://localhost:15672 (user: `pajak`, password: `pajak123`)
+RabbitMQ UI: http://localhost:15672 (user: `pajak`, password: `pajak123`)
 
 **2. Start TaxApi:**
 ```bash
@@ -120,22 +135,22 @@ UI: http://localhost:5173
 
 ## Elasticsearch Indexes
 
-| Index | Isi |
-|-------|-----|
-| `pajak-taxpayers` | Data Wajib Pajak |
-| `pajak-calculations` | Hasil perhitungan PPh21/PPN |
-| `pajak-reports` | Laporan SPT + status review |
-| `pajak-notifications` | Notifikasi hasil review |
+| Index | Contents |
+|-------|----------|
+| `pajak-taxpayers` | Taxpayer records |
+| `pajak-calculations` | PPh21/PPN calculation results |
+| `pajak-reports` | Tax reports + review status |
+| `pajak-notifications` | Review result notifications |
 
 ---
 
-## Telemetry dengan Elastic APM
+## Telemetry with Elastic APM
 
-Project ini menggunakan [Elastic APM .NET Agent](https://www.elastic.co/guide/en/apm/agent/dotnet/current/index.html) untuk distributed tracing otomatis dan manual.
+This project uses [Elastic APM .NET Agent](https://www.elastic.co/guide/en/apm/agent/dotnet/current/index.html) for automatic and manual distributed tracing, and [Elastic APM RUM Agent](https://www.elastic.co/guide/en/apm/agent/rum-js/current/index.html) for browser-side tracing.
 
-### Konfigurasi APM Agent
+### APM Agent Configuration
 
-APM agent dikonfigurasi via section `ElasticApm` di `appsettings.json`:
+The APM agent is configured via the `ElasticApm` section in `appsettings.json`:
 
 ```json
 {
@@ -149,17 +164,17 @@ APM agent dikonfigurasi via section `ElasticApm` di `appsettings.json`:
 }
 ```
 
-| Field | Keterangan |
-|-------|-----------|
-| `ServiceName` | Nama service yang tampil di APM UI dan Service Map |
-| `SecretToken` | Token autentikasi ke APM Server |
-| `ServerUrl` | URL APM Server (Elastic Cloud) |
-| `Environment` | Label environment (`development`, `production`, dll.) |
-| `LogLevel` | Level log agent APM itu sendiri |
+| Field | Description |
+|-------|-------------|
+| `ServiceName` | Service name shown in APM UI and Service Map |
+| `SecretToken` | Authentication token for APM Server |
+| `ServerUrl` | APM Server URL (Elastic Cloud) |
+| `Environment` | Environment label (`development`, `production`, etc.) |
+| `LogLevel` | Log level for the APM agent itself |
 
-### Alternatif: Environment Variables
+### Alternative: Environment Variables
 
-Untuk deployment Docker/CI, gunakan environment variables (override `appsettings.json`):
+For Docker/CI deployments, use environment variables (these override `appsettings.json`):
 
 ```bash
 ELASTIC_APM_SERVICE_NAME=pajak-taxapi
@@ -168,33 +183,44 @@ ELASTIC_APM_SERVER_URL=https://...
 ELASTIC_APM_ENVIRONMENT=production
 ```
 
-### Registrasi APM Agent
+### APM Agent Registration
 
-Di `Program.cs` masing-masing service:
+In each service's `Program.cs`:
 
 ```csharp
-// TaxApi/Program.cs
+// TaxApi/Program.cs — ASP.NET Core (includes automatic HTTP instrumentation)
 builder.Services.AddAllElasticApm();
 
-// ReportProcessor/Program.cs
+// ReportProcessor/Program.cs — Worker Service (manual instrumentation only)
 builder.Services.AddElasticApm();
 ```
 
-`AddAllElasticApm()` menambahkan instrumentasi HTTP otomatis untuk ASP.NET Core. `AddElasticApm()` untuk worker service tanpa HTTP.
+### Frontend RUM Agent
+
+The browser-side APM agent (`@elastic/apm-rum`) is initialized in `frontend/src/apm.ts` before any other imports:
+
+```typescript
+// frontend/src/main.tsx
+import './apm';  // must be first — intercepts all HTTP requests
+import { StrictMode } from 'react'
+// ...
+```
+
+`ApmRoutes` from `@elastic/apm-rum-react` wraps React Router to automatically create a transaction per route change. `distributedTracingOrigins` tells the RUM agent to inject `traceparent` into cross-origin requests to TaxApi.
 
 ---
 
 ## Manual Trace Propagation via RabbitMQ
 
-Elastic APM tidak otomatis mempropagasi trace context melalui RabbitMQ messages. Project ini mengimplementasikan propagasi manual menggunakan **W3C TraceContext** (`traceparent` header).
+Elastic APM does **not** automatically propagate trace context through RabbitMQ messages. This project implements manual propagation using the **W3C TraceContext** standard (`traceparent` header).
 
-### Mengapa Perlu Propagasi Manual?
+### Why Manual Propagation?
 
-Tanpa propagasi, setiap service membuat trace sendiri-sendiri yang tidak terhubung di APM UI. Dengan propagasi, satu submit laporan menghasilkan **satu trace panjang** yang melintasi TaxApi → ReportProcessor → TaxApi.
+Without propagation, each service creates its own disconnected trace in APM UI. With propagation, a single report submission produces **one long trace** spanning Frontend → TaxApi → ReportProcessor → TaxApi.
 
-### Implementasi
+### Implementation
 
-#### 1. TaxApi: Inject traceparent saat PUBLISH
+#### 1. TaxApi: Inject traceparent on PUBLISH
 
 ```csharp
 // src/TaxApi/Services/RabbitMqService.cs — PublishReportSubmittedAsync
@@ -220,12 +246,12 @@ await currentTransaction.CaptureSpan(
 );
 ```
 
-`span.OutgoingDistributedTracingData?.SerializeToString()` menghasilkan string W3C traceparent seperti:
+`span.OutgoingDistributedTracingData?.SerializeToString()` produces a W3C traceparent string like:
 ```
 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
 ```
 
-#### 2. ReportProcessor: Extract traceparent, buat child transaction
+#### 2. ReportProcessor: Extract traceparent, create child transaction
 
 ```csharp
 // src/ReportProcessor/Services/RabbitMqService.cs — StartConsumingAsync
@@ -237,10 +263,10 @@ var tracingData = DistributedTracingData.TryDeserializeFromString(incomingTracep
 var transaction = Agent.Tracer.StartTransaction(
     "RabbitMQ CONSUME pajak.laporan.submitted",
     ApiConstants.TypeMessaging,
-    tracingData);  // linked ke TaxApi trace
+    tracingData);  // linked to TaxApi trace
 ```
 
-#### 3. ReportProcessor: Inject traceparent baru saat PUBLISH result
+#### 3. ReportProcessor: Inject traceparent on PUBLISH result
 
 ```csharp
 // src/ReportProcessor/Services/RabbitMqService.cs
@@ -256,7 +282,7 @@ var props = new BasicProperties
 await _channel.BasicPublishAsync("", ResultQueue, false, props, resultBody);
 ```
 
-#### 4. TaxApi: Extract traceparent dari result, buat child transaction
+#### 4. TaxApi: Extract traceparent from result, create child transaction
 
 ```csharp
 // src/TaxApi/Services/RabbitMqService.cs — OnReportResultReceived
@@ -265,28 +291,12 @@ var tracingData = DistributedTracingData.TryDeserializeFromString(traceparent);
 var transaction = Agent.Tracer.StartTransaction(
     "RabbitMQ CONSUME pajak.laporan.result",
     ApiConstants.TypeMessaging,
-    tracingData);  // linked ke ReportProcessor trace
+    tracingData);  // linked to ReportProcessor trace
 ```
 
-### Trace End-to-End di APM UI
+### Helper: Extract traceparent from RabbitMQ Headers
 
-Setelah implementasi, satu submit laporan menghasilkan trace seperti ini:
-
-```
-TaxApi: POST /api/reports/{id}/submit
-  └── span: RabbitMQ PUBLISH pajak.laporan.submitted
-                    ↓ (traceparent di header)
-ReportProcessor: RabbitMQ CONSUME pajak.laporan.submitted  ← child dari TaxApi
-  └── span: ValidasiLaporan
-                    ↓ (traceparent di header result)
-TaxApi: RabbitMQ CONSUME pajak.laporan.result  ← child dari ReportProcessor
-  ├── span: ES UpdateReport
-  └── span: ES IndexNotification
-```
-
-### Helper: Extract traceparent dari RabbitMQ Headers
-
-RabbitMQ menyimpan header string sebagai `byte[]`, bukan `string`:
+RabbitMQ stores string header values as `byte[]`, not `string`:
 
 ```csharp
 private static string? GetTraceparentFromHeaders(IDictionary<string, object?>? headers)
@@ -302,101 +312,101 @@ private static string? GetTraceparentFromHeaders(IDictionary<string, object?>? h
 
 ---
 
-## Bagaimana Aplikasi Memutuskan: Trace Baru atau Teruskan Trace?
+## How the App Decides: New Trace or Continue Existing?
 
-Setiap service harus memutuskan: apakah pesan yang datang membawa context trace dari service sebelumnya, atau harus memulai trace baru?
+Every service must decide: does the incoming message carry trace context from a previous service, or should it start a fresh trace?
 
-### Format W3C traceparent
+### W3C traceparent Format
 
-String yang dipropagasi mengikuti standar [W3C TraceContext](https://www.w3.org/TR/trace-context/):
+The propagated string follows the [W3C TraceContext](https://www.w3.org/TR/trace-context/) standard:
 
 ```
 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
 │  │                                │                │
 │  └─ traceId (16 bytes / 32 hex)  │                └─ flags (sampled=01)
-│     Unik per satu request end-to-end               │
-└─ version (selalu "00")            └─ parentSpanId (8 bytes / 16 hex)
-                                       Span yang mengirim pesan ini
+│     Unique per end-to-end request │
+└─ version (always "00")            └─ parentSpanId (8 bytes / 16 hex)
+                                       Span that sent this message
 ```
 
-**Aturan sederhananya:**
-- `traceparent` ada di header → buat **child transaction** (traceId sama, span baru)
-- `traceparent` tidak ada / null → buat **trace baru** (traceId baru)
+**Simple rule:**
+- `traceparent` present in header → create **child transaction** (same traceId, new span)
+- `traceparent` absent / null → create **new trace** (new traceId)
 
-### Mekanisme di .NET APM Agent
+### Mechanism in .NET APM Agent
 
 ```csharp
 var tracingData = DistributedTracingData.TryDeserializeFromString(incomingTraceparent);
-//               ↑ Ini yang membuat keputusan:
-//               - string valid  → return DistributedTracingData (tidak null)
-//               - string null/invalid → return null
+//               ↑ This makes the decision:
+//               - valid string  → returns DistributedTracingData (not null)
+//               - null/invalid  → returns null
 
 var transaction = Agent.Tracer.StartTransaction(
     "RabbitMQ CONSUME pajak.laporan.submitted",
     ApiConstants.TypeMessaging,
     tracingData);
-//  ↑ tracingData tidak null → child transaction (traceId diwarisi dari TaxApi)
-//  ↑ tracingData null       → trace baru (traceId di-generate random)
+//  ↑ tracingData not null → child transaction (traceId inherited from TaxApi)
+//  ↑ tracingData null     → new trace (traceId randomly generated)
 ```
 
-### Contoh Konkret: Submit Laporan
+### Concrete Example: Report Submission
 
-Misalkan user klik "Submit" di browser. Berikut bagaimana `traceId` yang sama mengalir:
+When a user clicks "Submit" in the browser, here is how the same `traceId` flows through each service:
 
-**Langkah 1 — Browser (RUM Agent)**
+**Step 1 — Browser (RUM Agent)**
 ```
-Browser kirim: POST http://localhost:5001/api/reports/5281ff79-7241-4be8-9a3b-ac1dfa1c4be9/submit
-Header otomatis:  traceparent: 00-7152c87c4d97eaf4a41c8b6f8ce4434a-<spanId-browser>-01
-                                  ↑ traceId baru di-generate RUM agent
+Browser sends: POST http://localhost:5001/api/reports/5281ff79-7241-4be8-9a3b-ac1dfa1c4be9/submit
+Automatic header:  traceparent: 00-7152c87c4d97eaf4a41c8b6f8ce4434a-<spanId-browser>-01
+                                   ↑ new traceId generated by RUM agent
 ```
 
-**Langkah 2 — TaxApi menerima HTTP request**
+**Step 2 — TaxApi receives HTTP request**
 ```
-APM agent .NET baca header traceparent dari request
-→ Buat child transaction "POST /api/reports/{id}/submit"
-→ traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a  (sama dengan browser)
+.NET APM agent reads traceparent header from request
+→ Creates child transaction "POST /api/reports/{id}/submit"
+→ traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a  (same as browser)
 → parentSpanId: <spanId-browser>
 ```
 
-**Langkah 3 — TaxApi PUBLISH ke RabbitMQ**
+**Step 3 — TaxApi PUBLISHes to RabbitMQ**
 ```csharp
 span.OutgoingDistributedTracingData?.SerializeToString()
-// Menghasilkan:
+// Produces:
 // "00-7152c87c4d97eaf4a41c8b6f8ce4434a-<spanId-taxapi-publish>-01"
-//   traceId SAMA, parentSpanId = ID span PUBLISH TaxApi
+//   SAME traceId, parentSpanId = ID of TaxApi PUBLISH span
 ```
 
-Header ini dimasukkan ke pesan RabbitMQ.
+This string is written into the RabbitMQ message header.
 
-**Langkah 4 — ReportProcessor CONSUME dari RabbitMQ**
+**Step 4 — ReportProcessor CONSUMEs from RabbitMQ**
 ```csharp
 var incomingTraceparent = "00-7152c87c4d97eaf4a41c8b6f8ce4434a-<spanId-taxapi-publish>-01";
 var tracingData = DistributedTracingData.TryDeserializeFromString(incomingTraceparent);
 // tracingData != null → child transaction
-// traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a  (MASIH SAMA)
+// traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a  (STILL THE SAME)
 ```
 
-**Langkah 5 — ReportProcessor PUBLISH result ke RabbitMQ**
+**Step 5 — ReportProcessor PUBLISHes result to RabbitMQ**
 ```csharp
 transaction.OutgoingDistributedTracingData?.SerializeToString()
-// Menghasilkan:
+// Produces:
 // "00-7152c87c4d97eaf4a41c8b6f8ce4434a-<spanId-reportprocessor>-01"
-//   traceId SAMA, parentSpanId = ID transaction ReportProcessor
+//   SAME traceId, parentSpanId = ID of ReportProcessor transaction
 ```
 
-**Langkah 6 — TaxApi CONSUME result dari RabbitMQ**
+**Step 6 — TaxApi CONSUMEs result from RabbitMQ**
 ```csharp
 var incomingTraceparent = "00-7152c87c4d97eaf4a41c8b6f8ce4434a-<spanId-reportprocessor>-01";
 var tracingData = DistributedTracingData.TryDeserializeFromString(incomingTraceparent);
 // tracingData != null → child transaction
-// traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a  (MASIH SAMA)
+// traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a  (STILL THE SAME)
 ```
 
-### Visualisasi Trace di APM UI
+### Trace Waterfall in APM UI
 
-Satu traceId yang sama muncul sebagai satu trace tunggal di APM, meskipun melewati 3 proses berbeda.
+The same traceId appears as a single unified trace in APM, spanning 3 separate processes.
 
-Contoh dengan `traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a`:
+Real example with `traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a`:
 
 ```
 traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a
@@ -407,7 +417,7 @@ traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a
 │                │
 │       [pajak-taxapi]  HTTP 2xx POST /api/reports/{id}/submit  153 ms
 │                │
-│                ├── GET elasticsearch (baca data laporan)  29 ms
+│                ├── GET elasticsearch (read report data)  29 ms
 │                ├── PUT elasticsearch (update status → Submitted)  123 ms
 │                └── RabbitMQ PUBLISH pajak.laporan.submitted  481 µs
 │                           │  (header: traceparent 7152c87c...)
@@ -415,7 +425,7 @@ traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a
 │       [pajak-report-processor]  RabbitMQ CONSUME pajak.laporan.submitted  2,014 ms
 │                           │
 │                           └── ValidasiLaporan  122 µs
-│                               │  (header: traceparent 7152c87c... di result)
+│                               │  (header: traceparent 7152c87c... in result)
 │                               ▼
 │       [pajak-taxapi]  RabbitMQ CONSUME pajak.laporan.result  95 ms
 │                           │
@@ -423,17 +433,16 @@ traceId: 7152c87c4d97eaf4a41c8b6f8ce4434a
 │                           └── ES UpdateReport  31 ms
 ```
 
-<img width="1000" height="600" alt="image" src="https://github.com/user-attachments/assets/0d2b199f-d547-44f2-a0ca-cb190bfaea70" />
+<img width="1000" height="600" alt="APM Trace Waterfall" src="https://github.com/user-attachments/assets/0d2b199f-d547-44f2-a0ca-cb190bfaea70" />
 
+### Summary: When New Trace vs. Continue Existing?
 
-### Ringkasan: Kapan Trace Baru, Kapan Terusan?
+| Condition | `tracingData` | Result of `StartTransaction` |
+|-----------|---------------|------------------------------|
+| HTTP request from browser (with `traceparent` header) | not null | Child transaction — traceId same as browser |
+| HTTP request without `traceparent` header (e.g. direct curl) | null | New trace — random traceId |
+| RabbitMQ message with `elastic-apm-traceparent` header | not null | Child transaction — traceId same as publisher |
+| RabbitMQ message without header (e.g. legacy/manual message) | null | New trace — random traceId |
+| Header present but corrupt / invalid format | null | New trace — random traceId |
 
-| Kondisi | `tracingData` | Hasil `StartTransaction` |
-|---------|---------------|--------------------------|
-| Request HTTP dari browser (ada header `traceparent`) | tidak null | Child transaction — traceId sama dengan browser |
-| Request HTTP tanpa header `traceparent` (misal: curl langsung) | null | Trace baru — traceId random |
-| RabbitMQ message dengan header `elastic-apm-traceparent` | tidak null | Child transaction — traceId sama dengan publisher |
-| RabbitMQ message tanpa header (misal: pesan lama/manual) | null | Trace baru — traceId random |
-| Header ada tapi corrupt / format salah | null | Trace baru — traceId random |
-
-**Singkatnya:** `TryDeserializeFromString()` melakukan validasi format. Jika valid → teruskan trace. Jika tidak → mulai trace baru. Tidak ada exception, tidak ada konfigurasi tambahan — hanya cek null.
+**In short:** `TryDeserializeFromString()` validates the format. If valid → continue the trace. If not → start a new one. No exceptions thrown, no extra configuration — just a null check.
