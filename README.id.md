@@ -197,6 +197,34 @@ Tanpa propagasi, setiap service membuat trace sendiri-sendiri yang tidak terhubu
 
 ### Implementasi
 
+#### 0. Frontend (RUM Agent): Inject traceparent otomatis
+
+Sisi browser **tidak memerlukan kode manual** — RUM agent menanganinya secara otomatis berdasarkan konfigurasi `distributedTracingOrigins` di `frontend/src/apm.ts`:
+
+```typescript
+// frontend/src/apm.ts
+const config = {
+  serviceName: 'pajak-frontend',
+  serverUrl: import.meta.env.VITE_ELASTIC_APM_SERVER_URL,
+  secretToken: import.meta.env.VITE_ELASTIC_APM_SECRET_TOKEN,
+  distributedTracingOrigins: [
+    import.meta.env.VITE_API_URL ?? 'http://localhost:5001',
+  ],
+};
+```
+
+Setiap kali Axios mengirim request ke origin yang ada di `distributedTracingOrigins`, RUM agent **otomatis menambahkan** header `traceparent`:
+
+```
+POST http://localhost:5001/api/reports/{id}/submit
+traceparent: 00-7152c87c4d97eaf4a41c8b6f8ce4434a-a1b2c3d4e5f6a7b8-01
+             ↑ Header ini ditambahkan oleh RUM agent, bukan kode aplikasi
+```
+
+`ApmRoutes` (membungkus React Router di `App.tsx`) membuat APM transaction baru di setiap pergantian route, sehingga setiap navigasi halaman juga tercatat sebagai span tersendiri. `traceparent` yang diinjeksikan ke HTTP request membawa traceId dari **transaksi halaman saat ini**, menjadikan browser sebagai akar dari seluruh distributed trace.
+
+> Catatan: `distributedTracingOrigins` diperlukan karena frontend (`localhost:5173`) dan TaxApi (`localhost:5001`) berada di origin yang berbeda. Tanpanya, CORS policy browser akan memblokir custom header tersebut, dan RUM agent akan melewati injeksi untuk request lintas origin. TaxApi mengizinkan ini melalui `AllowAnyHeader()` di konfigurasi CORS-nya.
+
 #### 1. TaxApi: Inject traceparent saat PUBLISH
 
 ```csharp
