@@ -299,3 +299,132 @@ private static string? GetTraceparentFromHeaders(IDictionary<string, object?>? h
     return null;
 }
 ```
+
+---
+
+## Bagaimana Aplikasi Memutuskan: Trace Baru atau Teruskan Trace?
+
+Setiap service harus memutuskan: apakah pesan yang datang membawa context trace dari service sebelumnya, atau harus memulai trace baru?
+
+### Format W3C traceparent
+
+String yang dipropagasi mengikuti standar [W3C TraceContext](https://www.w3.org/TR/trace-context/):
+
+```
+00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+│  │                                │                │
+│  └─ traceId (16 bytes / 32 hex)  │                └─ flags (sampled=01)
+│     Unik per satu request end-to-end               │
+└─ version (selalu "00")            └─ parentSpanId (8 bytes / 16 hex)
+                                       Span yang mengirim pesan ini
+```
+
+**Aturan sederhananya:**
+- `traceparent` ada di header → buat **child transaction** (traceId sama, span baru)
+- `traceparent` tidak ada / null → buat **trace baru** (traceId baru)
+
+### Mekanisme di .NET APM Agent
+
+```csharp
+var tracingData = DistributedTracingData.TryDeserializeFromString(incomingTraceparent);
+//               ↑ Ini yang membuat keputusan:
+//               - string valid  → return DistributedTracingData (tidak null)
+//               - string null/invalid → return null
+
+var transaction = Agent.Tracer.StartTransaction(
+    "RabbitMQ CONSUME pajak.laporan.submitted",
+    ApiConstants.TypeMessaging,
+    tracingData);
+//  ↑ tracingData tidak null → child transaction (traceId diwarisi dari TaxApi)
+//  ↑ tracingData null       → trace baru (traceId di-generate random)
+```
+
+### Contoh Konkret: Submit Laporan
+
+Misalkan user klik "Submit" di browser. Berikut bagaimana `traceId` yang sama mengalir:
+
+**Langkah 1 — Browser (RUM Agent)**
+```
+Browser kirim: POST http://localhost:5001/api/reports/abc123/submit
+Header otomatis:  traceparent: 00-aabbccddeeff00112233445566778899-1111111111111111-01
+                                  ↑ traceId baru di-generate RUM agent
+```
+
+**Langkah 2 — TaxApi menerima HTTP request**
+```
+APM agent .NET baca header traceparent dari request
+→ Buat child transaction "POST /api/reports/{id}/submit"
+→ traceId: aabbccddeeff00112233445566778899  (sama dengan browser)
+→ parentSpanId: 1111111111111111  (span milik browser)
+```
+
+**Langkah 3 — TaxApi PUBLISH ke RabbitMQ**
+```csharp
+span.OutgoingDistributedTracingData?.SerializeToString()
+// Menghasilkan:
+// "00-aabbccddeeff00112233445566778899-2222222222222222-01"
+//   traceId SAMA, parentSpanId = ID span PUBLISH TaxApi
+```
+
+Header ini dimasukkan ke pesan RabbitMQ.
+
+**Langkah 4 — ReportProcessor CONSUME dari RabbitMQ**
+```csharp
+var incomingTraceparent = "00-aabbccddeeff00112233445566778899-2222222222222222-01";
+var tracingData = DistributedTracingData.TryDeserializeFromString(incomingTraceparent);
+// tracingData != null → child transaction
+// traceId: aabbccddeeff00112233445566778899  (MASIH SAMA)
+```
+
+**Langkah 5 — ReportProcessor PUBLISH result ke RabbitMQ**
+```csharp
+transaction.OutgoingDistributedTracingData?.SerializeToString()
+// Menghasilkan:
+// "00-aabbccddeeff00112233445566778899-3333333333333333-01"
+//   traceId SAMA, parentSpanId = ID transaction ReportProcessor
+```
+
+**Langkah 6 — TaxApi CONSUME result dari RabbitMQ**
+```csharp
+var incomingTraceparent = "00-aabbccddeeff00112233445566778899-3333333333333333-01";
+var tracingData = DistributedTracingData.TryDeserializeFromString(incomingTraceparent);
+// tracingData != null → child transaction
+// traceId: aabbccddeeff00112233445566778899  (MASIH SAMA)
+```
+
+### Visualisasi Trace di APM UI
+
+Satu traceId yang sama muncul sebagai satu trace tunggal di APM, meskipun melewati 3 proses berbeda:
+
+```
+traceId: aabbccddeeff00112233445566778899
+│
+├── [Browser] Page load / Axios POST             span: 1111111111111111
+│       │
+│       └── [TaxApi] POST /api/reports/{id}/submit   span: 2222222222222222
+│                │
+│                └── span: RabbitMQ PUBLISH pajak.laporan.submitted
+│                           │  (header: traceparent dengan span 2222...)
+│                           ▼
+│               [ReportProcessor] RabbitMQ CONSUME     span: 3333333333333333
+│                           │   (parent: span 2222... dari TaxApi)
+│                           └── span: ValidasiLaporan
+│                               │  (header: traceparent dengan span 3333...)
+│                               ▼
+│               [TaxApi] RabbitMQ CONSUME result        span: 4444444444444444
+│                           │   (parent: span 3333... dari ReportProcessor)
+│                           ├── span: ES UpdateReport
+│                           └── span: ES IndexNotification
+```
+
+### Ringkasan: Kapan Trace Baru, Kapan Terusan?
+
+| Kondisi | `tracingData` | Hasil `StartTransaction` |
+|---------|---------------|--------------------------|
+| Request HTTP dari browser (ada header `traceparent`) | tidak null | Child transaction — traceId sama dengan browser |
+| Request HTTP tanpa header `traceparent` (misal: curl langsung) | null | Trace baru — traceId random |
+| RabbitMQ message dengan header `elastic-apm-traceparent` | tidak null | Child transaction — traceId sama dengan publisher |
+| RabbitMQ message tanpa header (misal: pesan lama/manual) | null | Trace baru — traceId random |
+| Header ada tapi corrupt / format salah | null | Trace baru — traceId random |
+
+**Singkatnya:** `TryDeserializeFromString()` melakukan validasi format. Jika valid → teruskan trace. Jika tidak → mulai trace baru. Tidak ada exception, tidak ada konfigurasi tambahan — hanya cek null.
