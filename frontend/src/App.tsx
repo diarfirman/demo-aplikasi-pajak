@@ -1,4 +1,5 @@
-import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
+import { BrowserRouter, Route, NavLink } from 'react-router-dom';
+import { ApmRoutes } from '@elastic/apm-rum-react';
 import TaxPayersPage from './pages/TaxPayersPage';
 import CalculationsPage from './pages/CalculationsPage';
 import ReportsPage from './pages/ReportsPage';
@@ -26,12 +27,12 @@ function App() {
           </div>
         </nav>
         <main className="main-content">
-          <Routes>
+          <ApmRoutes>
             <Route path="/" element={<TaxPayersPage />} />
             <Route path="/calculations" element={<CalculationsPage />} />
             <Route path="/reports" element={<ReportsPage />} />
             <Route path="/notifications" element={<NotificationsPage />} />
-          </Routes>
+          </ApmRoutes>
         </main>
       </div>
     </BrowserRouter>
