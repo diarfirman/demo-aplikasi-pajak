@@ -1,4 +1,4 @@
-# Instrumentasi Elastic APM â€” Demo Aplikasi Pajak
+# Instrumentasi Elastic APM - Demo Aplikasi Pajak
 
 Dokumen ini menjelaskan cara keseluruhan aplikasi diinstrumentasi dengan **Elastic APM** untuk distributed tracing end-to-end: dari klik di browser hingga kalkulasi pajak di microservice, melewati RabbitMQ.
 
