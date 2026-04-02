@@ -9,10 +9,10 @@ Dokumen ini menjelaskan cara keseluruhan aplikasi diinstrumentasi dengan **Elast
 1. [Konsep Dasar](#1-konsep-dasar)
 2. [Package & Dependensi](#2-package--dependensi)
 3. [Konfigurasi Environment](#3-konfigurasi-environment)
-4. [Frontend â€” APM RUM Agent](#4-frontend--apm-rum-agent)
-5. [TaxApi â€” Auto-instrument + Custom Span](#5-taxapi--auto-instrument--custom-span)
-6. [CalculatorApi â€” Trace dari Header AMQP](#6-calculatorapi--trace-dari-header-amqp)
-7. [ReportProcessor â€” Worker Service Tracing](#7-reportprocessor--worker-service-tracing)
+4. [Frontend APM RUM Agent](#4-frontend--apm-rum-agent)
+5. [TaxApi Auto-instrument + Custom Span](#5-taxapi--auto-instrument--custom-span)
+6. [CalculatorApi Trace dari Header AMQP](#6-calculatorapi--trace-dari-header-amqp)
+7. [ReportProcessor Worker Service Tracing](#7-reportprocessor--worker-service-tracing)
 8. [Propagasi Traceparent via RabbitMQ](#8-propagasi-traceparent-via-rabbitmq)
 9. [Diagram Instrumentasi](#9-diagram-instrumentasi)
 
@@ -85,7 +85,7 @@ environment:
 
 Konvensi .NET: `ElasticApm__ServiceName` â†’ `ElasticApm:ServiceName` di `IConfiguration`.
 
-### Frontend (build args â†’ Vite env vars)
+### Frontend (build args Vite env vars)
 
 ```yaml
 # docker-compose.yml â€” build args karena Vite bake env var saat build, bukan runtime
@@ -112,7 +112,7 @@ RUN npm run build
 
 ---
 
-## 4. Frontend â€” APM RUM Agent
+## 4. Frontend APM RUM Agent
 
 ### Inisialisasi (src/apm.ts)
 
@@ -165,7 +165,7 @@ Sehingga trace dari browser terhubung langsung dengan transaction di TaxApi.
 
 ---
 
-## 5. TaxApi â€” Auto-instrument + Custom Span
+## 5. TaxApi Auto-instrument + Custom Span
 
 ### Registrasi (Program.cs)
 
@@ -316,7 +316,7 @@ private async Task OnReportResultReceived(object sender, BasicDeliverEventArgs a
 
 ---
 
-## 6. CalculatorApi â€” Trace dari Header AMQP
+## 6. CalculatorApi Trace dari Header AMQP
 
 CalculatorApi tidak menerima HTTP request â€” ia hanya mendengarkan RabbitMQ.
 Setiap pesan yang masuk dimulai sebagai transaction baru yang di-link ke trace pengirim.
@@ -397,7 +397,7 @@ private async Task HandleCalculateRequestAsync(IChannel channel, BasicDeliverEve
 
 ---
 
-## 7. ReportProcessor â€” Worker Service Tracing
+## 7. ReportProcessor Worker Service Tracing
 
 ReportProcessor adalah `BackgroundService` (tidak ada HTTP pipeline), sehingga menggunakan
 `Elastic.Apm.Extensions.Hosting` dan semua transaction dibuat manual.
