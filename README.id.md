@@ -11,6 +11,7 @@ Demo aplikasi pengelolaan pajak sederhana yang menampilkan komunikasi dua arah (
 |-------|-----------|
 | Frontend | React 18 + TypeScript + Vite |
 | API | .NET 9 Minimal API |
+| Calculation Engine | .NET 9 Background Service (AMQP RPC) |
 | Worker | .NET 9 Background Service |
 | Messaging | RabbitMQ (direct AMQP, tanpa MassTransit) |
 | Database | Elasticsearch (cloud) |
@@ -19,28 +20,47 @@ Demo aplikasi pengelolaan pajak sederhana yang menampilkan komunikasi dua arah (
 ## Arsitektur
 
 ```
-Frontend (React)  :5173
+Frontend (React)  :5173 (lokal) / :3000 (Docker)
         │ HTTP (Axios)
         ▼
 TaxApi (.NET 9)   :5001
-  ├── CRUD: Wajib Pajak, Perhitungan, Laporan, Notifikasi
-  ├── PUBLISH → pajak.laporan.submitted
-  └── CONSUME ← pajak.laporan.result → update ES + buat notifikasi
-        │ AMQP ↕
-     RabbitMQ
-        │ AMQP ↕
-ReportProcessor (.NET 9 Worker)
-  ├── CONSUME ← pajak.laporan.submitted → validasi laporan
-  └── PUBLISH → pajak.laporan.result (approved/rejected)
+  ├── CRUD: Wajib Pajak, Perhitungan, Laporan, Notifikasi, Summary
+  ├── AMQP RPC → pajak.calculate.request  ────────────────────────┐
+  ├── PUBLISH  → pajak.laporan.submitted                           │
+  └── CONSUME ← pajak.laporan.result → update ES + notifikasi      │
+        │ AMQP ↕                                                   │
+     RabbitMQ                                               AMQP RPC ↕
+        │ AMQP ↕                                                   │
+ReportProcessor (.NET 9 Worker)                                    │
+  ├── CONSUME ← pajak.laporan.submitted → validasi via RPC ────────┤
+  └── PUBLISH → pajak.laporan.result (approved/rejected)           │
+        │ AMQP ↕                                                   │
+     RabbitMQ                                                      │
+        └──────────────────────────────────────────────────────────┘
+                                                                   ▼
+                                             CalculatorApi (.NET 9)  :5003
+                                               ├── CONSUME ← pajak.calculate.request
+                                               └── CONSUME ← pajak.validate.request
 ```
+
+**Queue RabbitMQ:**
+
+| Queue | Arah | Fungsi |
+|-------|------|--------|
+| `pajak.calculate.request` | TaxApi / ReportProcessor → CalculatorApi | AMQP RPC: kalkulasi & validasi pajak |
+| `pajak.calculate.reply.taxapi` | CalculatorApi → TaxApi | RPC reply (exclusive, auto-delete) |
+| `pajak.validate.request` | ReportProcessor → CalculatorApi | AMQP RPC: validasi laporan |
+| `pajak.laporan.submitted` | TaxApi → ReportProcessor | Laporan disubmit untuk review |
+| `pajak.laporan.result` | ReportProcessor → TaxApi | Hasil review (approved/rejected) |
 
 **Flow back-and-forth:**
 ```
 POST /api/reports/{id}/submit
-  → TaxApi: status = "Submitted", PUBLISH ke MQ
+  → TaxApi: status = "Submitted", PUBLISH ke pajak.laporan.submitted
        ↓
-  ReportProcessor: CONSUME, validasi (NPWP, total, dll.)
-  → PUBLISH result ke MQ
+  ReportProcessor: CONSUME, kirim RPC ke CalculatorApi (pajak.validate.request)
+  → CalculatorApi memvalidasi, reply via RPC
+  → ReportProcessor: PUBLISH result ke pajak.laporan.result
        ↓
   TaxApi: CONSUME result, update status + buat notifikasi
        ↓
@@ -76,6 +96,21 @@ Buat file `src/TaxApi/appsettings.Development.json`:
 }
 ```
 
+### CalculatorApi
+
+CalculatorApi hanya membutuhkan RabbitMQ (tidak perlu Elasticsearch). Tidak diperlukan `appsettings.Development.json` untuk development lokal — default di `appsettings.json` sudah mengarah ke `localhost:5672`.
+
+Untuk mengaktifkan APM tracing, buat `src/CalculatorApi/appsettings.Development.json`:
+
+```json
+{
+  "ElasticApm": {
+    "SecretToken": "<apm-secret-token>",
+    "ServerUrl": "https://your.apm.server.url:443"
+  }
+}
+```
+
 ### ReportProcessor
 
 Buat file `src/ReportProcessor/appsettings.Development.json`:
@@ -90,6 +125,19 @@ Buat file `src/ReportProcessor/appsettings.Development.json`:
 ```
 
 > File `appsettings.Development.json` sudah ada di `.gitignore` — tidak akan ter-commit.
+>
+> .NET otomatis memuat file ini saat `ASPNETCORE_ENVIRONMENT=Development` (default ketika `dotnet run`), menimpa nilai placeholder di `appsettings.json`.
+
+### Frontend
+
+Buat file `frontend/.env.local`:
+
+```env
+VITE_ELASTIC_APM_SERVER_URL=https://your.apm.server.url:443
+VITE_ELASTIC_APM_SECRET_TOKEN=<apm-secret-token>
+```
+
+> Jika file ini tidak ada, RUM agent frontend akan dinonaktifkan otomatis — aplikasi tetap berjalan, hanya tanpa frontend traces.
 
 ## Cara Menjalankan
 
@@ -100,20 +148,29 @@ docker compose up rabbitmq -d
 ```
 UI RabbitMQ: http://localhost:15672 (user: `pajak`, password: `pajak123`)
 
-**2. Start TaxApi:**
+**2. Start CalculatorApi:**
+```bash
+cd src/CalculatorApi
+dotnet run
+```
+Health check: http://localhost:5003/health
+
+> CalculatorApi harus berjalan sebelum TaxApi dan ReportProcessor, karena keduanya bergantung pada CalculatorApi untuk kalkulasi pajak dan validasi laporan via AMQP RPC.
+
+**3. Start TaxApi:**
 ```bash
 cd src/TaxApi
 dotnet run
 ```
 Swagger: http://localhost:5001/swagger
 
-**3. Start ReportProcessor:**
+**4. Start ReportProcessor:**
 ```bash
 cd src/ReportProcessor
 dotnet run
 ```
 
-**4. Start Frontend:**
+**5. Start Frontend:**
 ```bash
 cd frontend
 npm install
@@ -121,13 +178,46 @@ npm run dev
 ```
 UI: http://localhost:5173
 
+> **Catatan Docker:** Saat menjalankan via `docker compose up`, frontend di-serve oleh nginx dan dapat diakses di **http://localhost:3000** (bukan 5173). Port 5173 adalah port Vite dev server yang hanya digunakan untuk development lokal.
+
+## API Endpoints
+
+| Method | Path | Keterangan |
+|--------|------|-----------|
+| `GET` | `/api/taxpayers` | Daftar semua wajib pajak |
+| `GET` | `/api/taxpayers/{id}` | Detail wajib pajak by ID |
+| `GET` | `/api/taxpayers/npwp/{npwp}` | Cari wajib pajak by NPWP |
+| `POST` | `/api/taxpayers` | Daftarkan wajib pajak baru |
+| `POST` | `/api/calculations/pph21` | Hitung PPh 21 (bulanan) |
+| `POST` | `/api/calculations/pph21/thr` | Hitung PPh 21 THR/Bonus |
+| `POST` | `/api/calculations/pph21/desember` | Hitung PPh 21 Desember (koreksi akhir tahun) |
+| `POST` | `/api/calculations/pph23` | Hitung PPh 23 |
+| `POST` | `/api/calculations/ppn` | Hitung PPN (12%) |
+| `POST` | `/api/calculations/pph-final` | Hitung PPh Final UMKM (PP 55/2022, 0,5%) |
+| `GET` | `/api/calculations` | Daftar semua perhitungan |
+| `GET` | `/api/calculations/taxpayer/{id}` | Daftar perhitungan per wajib pajak |
+| `GET` | `/api/reports` | Daftar laporan (filter: `status`, `jenisSpt`, `period`) |
+| `GET` | `/api/reports/{id}` | Detail laporan by ID |
+| `GET` | `/api/reports/taxpayer/{id}` | Daftar laporan per wajib pajak |
+| `POST` | `/api/reports` | Buat laporan manual |
+| `POST` | `/api/reports/from-calculations` | Buat laporan dari daftar ID kalkulasi |
+| `PUT` | `/api/reports/{id}` | Edit laporan (hanya status Draft) |
+| `DELETE` | `/api/reports/{id}` | Hapus laporan (hanya status Draft) |
+| `POST` | `/api/reports/{id}/submit` | Submit laporan untuk review |
+| `GET` | `/api/notifications` | Daftar semua notifikasi |
+| `GET` | `/api/summary` | Ringkasan dashboard (total, laporan terbaru) |
+
+> Schema request/response lengkap tersedia di `http://localhost:5001/swagger`.
+>
+> Untuk detail CalculatorApi (RPC pattern, model kalkulasi), lihat [docs/calculator-api.md](docs/calculator-api.md).
+
 ## Elasticsearch Indexes
 
 | Index | Isi |
 |-------|-----|
 | `pajak-taxpayers` | Data Wajib Pajak |
-| `pajak-calculations` | Hasil perhitungan PPh21/PPN |
-| `pajak-reports` | Laporan SPT + status review |
+| `pajak-calculations` | Hasil perhitungan (PPh21, PPh21-THR, PPh21-Desember, PPh23, PPN, PPh-Final) |
+| `pajak-reports` | Laporan SPT + status review, deadline, linked calculations |
 | `pajak-notifications` | Notifikasi hasil review |
 
 ---

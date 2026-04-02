@@ -12,6 +12,7 @@ A simple tax management demo application showcasing **RabbitMQ back-and-forth me
 |-------|-----------|
 | Frontend | React 18 + TypeScript + Vite |
 | API | .NET 9 Minimal API |
+| Calculation Engine | .NET 9 Background Service (AMQP RPC) |
 | Worker | .NET 9 Background Service |
 | Messaging | RabbitMQ (direct AMQP, no MassTransit) |
 | Database | Elasticsearch (cloud) |
@@ -20,28 +21,47 @@ A simple tax management demo application showcasing **RabbitMQ back-and-forth me
 ## Architecture
 
 ```
-Frontend (React)  :5173
+Frontend (React)  :5173 (local) / :3000 (Docker)
         │ HTTP (Axios)
         ▼
 TaxApi (.NET 9)   :5001
-  ├── CRUD: Taxpayers, Calculations, Reports, Notifications
-  ├── PUBLISH → pajak.laporan.submitted
-  └── CONSUME ← pajak.laporan.result → update ES + create notification
-        │ AMQP ↕
-     RabbitMQ
-        │ AMQP ↕
-ReportProcessor (.NET 9 Worker)
-  ├── CONSUME ← pajak.laporan.submitted → validate report
-  └── PUBLISH → pajak.laporan.result (approved/rejected)
+  ├── CRUD: Taxpayers, Calculations, Reports, Notifications, Summary
+  ├── AMQP RPC → pajak.calculate.request  ─────────────────────┐
+  ├── PUBLISH  → pajak.laporan.submitted                        │
+  └── CONSUME ← pajak.laporan.result → update ES + notify       │
+        │ AMQP ↕                                                │
+     RabbitMQ                                              AMQP RPC ↕
+        │ AMQP ↕                                                │
+ReportProcessor (.NET 9 Worker)                                 │
+  ├── CONSUME ← pajak.laporan.submitted → validate via RPC ─────┤
+  └── PUBLISH → pajak.laporan.result (approved/rejected)        │
+        │ AMQP ↕                                                │
+     RabbitMQ                                                   │
+        └───────────────────────────────────────────────────────┘
+                                                                ▼
+                                             CalculatorApi (.NET 9)  :5003
+                                               ├── CONSUME ← pajak.calculate.request
+                                               └── CONSUME ← pajak.validate.request
 ```
+
+**RabbitMQ queues:**
+
+| Queue | Direction | Purpose |
+|-------|-----------|---------|
+| `pajak.calculate.request` | TaxApi / ReportProcessor → CalculatorApi | AMQP RPC: tax calculation & validation |
+| `pajak.calculate.reply.taxapi` | CalculatorApi → TaxApi | RPC reply (exclusive, auto-delete) |
+| `pajak.validate.request` | ReportProcessor → CalculatorApi | AMQP RPC: report validation |
+| `pajak.laporan.submitted` | TaxApi → ReportProcessor | Report submitted for review |
+| `pajak.laporan.result` | ReportProcessor → TaxApi | Review result (approved/rejected) |
 
 **Back-and-forth flow:**
 ```
 POST /api/reports/{id}/submit
-  → TaxApi: status = "Submitted", PUBLISH to MQ
+  → TaxApi: status = "Submitted", PUBLISH to pajak.laporan.submitted
        ↓
-  ReportProcessor: CONSUME, validate (NPWP, totals, etc.)
-  → PUBLISH result to MQ
+  ReportProcessor: CONSUME, send RPC to CalculatorApi (pajak.validate.request)
+  → CalculatorApi validates, replies via RPC
+  → ReportProcessor: PUBLISH result to pajak.laporan.result
        ↓
   TaxApi: CONSUME result, update status + create notification
        ↓
@@ -70,6 +90,21 @@ Create `src/TaxApi/appsettings.Development.json`:
     "Url": "https://your.elasticsearch.url:443",
     "ApiKey": "<elasticsearch-api-key>"
   },
+  "ElasticApm": {
+    "SecretToken": "<apm-secret-token>",
+    "ServerUrl": "https://your.apm.server.url:443"
+  }
+}
+```
+
+### CalculatorApi
+
+CalculatorApi only needs RabbitMQ (no Elasticsearch). No `appsettings.Development.json` is required for local development — the defaults in `appsettings.json` point to `localhost:5672`.
+
+To enable APM tracing, create `src/CalculatorApi/appsettings.Development.json`:
+
+```json
+{
   "ElasticApm": {
     "SecretToken": "<apm-secret-token>",
     "ServerUrl": "https://your.apm.server.url:443"
@@ -114,20 +149,29 @@ docker compose up rabbitmq -d
 ```
 RabbitMQ UI: http://localhost:15672 (user: `pajak`, password: `pajak123`)
 
-**2. Start TaxApi:**
+**2. Start CalculatorApi:**
+```bash
+cd src/CalculatorApi
+dotnet run
+```
+Health check: http://localhost:5003/health
+
+> CalculatorApi must be running before TaxApi and ReportProcessor, as both services depend on it for tax calculations and report validation via AMQP RPC.
+
+**3. Start TaxApi:**
 ```bash
 cd src/TaxApi
 dotnet run
 ```
 Swagger: http://localhost:5001/swagger
 
-**3. Start ReportProcessor:**
+**4. Start ReportProcessor:**
 ```bash
 cd src/ReportProcessor
 dotnet run
 ```
 
-**4. Start Frontend:**
+**5. Start Frontend:**
 ```bash
 cd frontend
 npm install
@@ -135,13 +179,46 @@ npm run dev
 ```
 UI: http://localhost:5173
 
+> **Docker note:** When running via `docker compose up`, the frontend is served by nginx and accessible at **http://localhost:3000** (not 5173). Port 5173 is the Vite dev server port used only for local development.
+
+## API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/taxpayers` | List all taxpayers |
+| `GET` | `/api/taxpayers/{id}` | Get taxpayer by ID |
+| `GET` | `/api/taxpayers/npwp/{npwp}` | Get taxpayer by NPWP |
+| `POST` | `/api/taxpayers` | Register new taxpayer |
+| `POST` | `/api/calculations/pph21` | Calculate PPh 21 (monthly) |
+| `POST` | `/api/calculations/pph21/thr` | Calculate PPh 21 THR/Bonus |
+| `POST` | `/api/calculations/pph21/desember` | Calculate PPh 21 December (year-end correction) |
+| `POST` | `/api/calculations/pph23` | Calculate PPh 23 |
+| `POST` | `/api/calculations/ppn` | Calculate PPN (VAT 12%) |
+| `POST` | `/api/calculations/pph-final` | Calculate PPh Final UMKM (PP 55/2022, 0.5%) |
+| `GET` | `/api/calculations` | List all calculations |
+| `GET` | `/api/calculations/taxpayer/{id}` | List calculations by taxpayer |
+| `GET` | `/api/reports` | List reports (filterable by `status`, `jenisSpt`, `period`) |
+| `GET` | `/api/reports/{id}` | Get report by ID |
+| `GET` | `/api/reports/taxpayer/{id}` | List reports by taxpayer |
+| `POST` | `/api/reports` | Create report manually |
+| `POST` | `/api/reports/from-calculations` | Create report from a list of calculation IDs |
+| `PUT` | `/api/reports/{id}` | Update report (Draft status only) |
+| `DELETE` | `/api/reports/{id}` | Delete report (Draft status only) |
+| `POST` | `/api/reports/{id}/submit` | Submit report for review |
+| `GET` | `/api/notifications` | List all notifications |
+| `GET` | `/api/summary` | Dashboard summary (totals, recent reports) |
+
+> Full request/response schemas are available at `http://localhost:5001/swagger`.
+>
+> For CalculatorApi internals (RPC pattern, tax calculation models), see [docs/calculator-api.md](docs/calculator-api.md).
+
 ## Elasticsearch Indexes
 
 | Index | Contents |
 |-------|----------|
 | `pajak-taxpayers` | Taxpayer records |
-| `pajak-calculations` | PPh21/PPN calculation results |
-| `pajak-reports` | Tax reports + review status |
+| `pajak-calculations` | Calculation results (PPh21, PPh21-THR, PPh21-Desember, PPh23, PPN, PPh-Final) |
+| `pajak-reports` | Tax reports (SPT) + review status, deadlines, linked calculations |
 | `pajak-notifications` | Review result notifications |
 
 ---
