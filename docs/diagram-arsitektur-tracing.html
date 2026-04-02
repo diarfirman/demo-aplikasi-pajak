@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Arsitektur &amp; Distributed Tracing — Demo Aplikasi Pajak</title>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0d1117;
+  color: #e6edf3;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  padding: 44px 32px;
+  max-width: 1140px;
+  margin: 0 auto;
+}
+h1 { font-size: 28px; color: #f0f6fc; font-weight: 700; }
+.tagline { color: #8b949e; font-size: 14px; margin-top: 6px; margin-bottom: 52px; }
+section { margin-bottom: 64px; }
+h2 { font-size: 19px; color: #f0f6fc; font-weight: 600; margin-bottom: 5px; }
+.desc { color: #8b949e; font-size: 13px; margin-bottom: 18px; line-height: 1.5; }
+.desc strong { color: #c9d1d9; }
+svg { width: 100%; height: auto; display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 20px; margin-top: 14px; }
+.li { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #8b949e; }
+.li-line { width: 32px; height: 2px; }
+.li-line.solid   { background: currentColor; }
+.li-line.dashed  { background: repeating-linear-gradient(90deg, currentColor 0 5px, transparent 5px 9px); }
+
+/* --- Trace Flow (Diagram 2) --- */
+.flow-wrap { border: 1px solid #21262d; border-radius: 12px; overflow: hidden; }
+
+/* trace ID bar */
+.trace-bar {
+  background: #161b22;
+  border-bottom: 1px solid #21262d;
+  padding: 14px 24px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.trace-label { font-size: 12px; color: #8b949e; }
+.trace-id {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 14px;
+  font-weight: 700;
+  color: #f0f6fc;
+  background: #21262d;
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid #ff7b22;
+  letter-spacing: 0.5px;
+}
+.trace-note { font-size: 12px; color: #6e7681; }
+
+/* column headers */
+.col-headers {
+  display: grid;
+  grid-template-columns: 145px 180px 155px 210px 185px;
+  border-bottom: 1px solid #21262d;
+  background: #0d1117;
+}
+.col-hdr {
+  padding: 10px 8px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 700;
+  border-right: 1px solid #21262d;
+}
+.col-hdr:last-child { border-right: none; }
+
+/* steps */
+.steps { background: #0d1117; }
+.step {
+  display: grid;
+  grid-template-columns: 145px 180px 155px 210px 185px;
+  border-bottom: 1px solid #161b22;
+  min-height: 72px;
+}
+.step:last-child { border-bottom: none; }
+.cell {
+  padding: 10px 8px;
+  border-right: 1px solid #161b22;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.cell:last-child { border-right: none; }
+
+/* step number */
+.step-num {
+  width: 22px; height: 22px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+
+/* action card inside a cell */
+.action {
+  background: #161b22;
+  border-radius: 6px;
+  padding: 7px 10px;
+  width: 100%;
+  border-left: 3px solid currentColor;
+}
+.action-title { font-size: 11px; font-weight: 600; line-height: 1.3; }
+.action-sub   { font-size: 10px; color: #8b949e; margin-top: 3px; line-height: 1.4; }
+
+/* traceparent pill */
+.tp-wrap { display: flex; flex-direction: column; gap: 4px; width: 100%; }
+.tp-label { font-size: 9px; color: #6e7681; text-transform: uppercase; letter-spacing: 0.5px; }
+.tp {
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 9.5px;
+  background: #161b22;
+  border-radius: 4px;
+  padding: 4px 7px;
+  line-height: 1.5;
+  border: 1px solid #21262d;
+  word-break: break-all;
+}
+.tp .version { color: #6e7681; }
+.tp .tid     { color: #ff8c00; font-weight: 700; }
+.tp .sid     { color: #58a6ff; }
+.tp .flags   { color: #6e7681; }
+.tp-direction { font-size: 10px; color: #6e7681; margin-top: 4px; display: flex; align-items: center; gap: 4px; }
+.arrow-icon { font-size: 14px; }
+
+/* arrow cells (connecting columns) */
+.arrow-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  color: #30363d;
+}
+.arrow-cell.active { color: inherit; }
+
+/* concept box */
+.concept {
+  border: 1px solid #21262d;
+  border-radius: 12px;
+  padding: 24px 28px;
+  background: #161b22;
+}
+.concept h3 { font-size: 15px; color: #f0f6fc; margin-bottom: 14px; }
+.concept-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.concept-item { display: flex; gap: 12px; }
+.concept-icon { font-size: 24px; flex-shrink: 0; margin-top: 2px; }
+.concept-item h4 { font-size: 13px; color: #c9d1d9; margin-bottom: 4px; }
+.concept-item p  { font-size: 12px; color: #8b949e; line-height: 1.5; }
+.concept-item code {
+  background: #21262d;
+  border-radius: 3px;
+  padding: 1px 5px;
+  font-family: 'SFMono-Regular', Consolas, monospace;
+  font-size: 11px;
+  color: #ff8c00;
+}
+
+/* Colors */
+.c-browser  { color: #58a6ff; }
+.c-taxapi   { color: #3fb950; }
+.c-rabbitmq { color: #ffa657; }
+.c-report   { color: #bc8cff; }
+.c-calc     { color: #ff7b72; }
+
+.bg-browser  { background: #0d1e33; border-color: #58a6ff; }
+.bg-taxapi   { background: #0d1f0d; border-color: #3fb950; }
+.bg-rabbitmq { background: #2a1a05; border-color: #ffa657; }
+.bg-report   { background: #1a0d2a; border-color: #bc8cff; }
+.bg-calc     { background: #2a0d0d; border-color: #ff7b72; }
+
+.num-browser  { background: #1c2d40; color: #58a6ff; }
+.num-taxapi   { background: #0d2a0d; color: #3fb950; }
+.num-rabbitmq { background: #2a1800; color: #ffa657; }
+.num-report   { background: #1a0d2a; color: #bc8cff; }
+.num-calc     { background: #2a0d0d; color: #ff7b72; }
+
+/* Waterfall (APM view section) */
+.waterfall { border: 1px solid #21262d; border-radius: 12px; overflow: hidden; }
+.wf-header { background: #161b22; padding: 12px 20px; border-bottom: 1px solid #21262d; font-size: 12px; color: #8b949e; }
+.wf-header strong { color: #f0f6fc; }
+.wf-row { display: flex; align-items: center; gap: 12px; padding: 8px 20px; border-bottom: 1px solid #161b22; }
+.wf-row:last-child { border-bottom: none; }
+.wf-service { width: 180px; font-size: 11px; font-weight: 600; flex-shrink: 0; }
+.wf-name { font-size: 10px; color: #8b949e; font-weight: 400; }
+.wf-bar-wrap { flex: 1; }
+.wf-bar {
+  height: 20px;
+  border-radius: 3px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  position: relative;
+}
+.wf-bar span { position: relative; z-index: 1; }
+.wf-duration { width: 50px; text-align: right; font-size: 10px; color: #8b949e; flex-shrink: 0; }
+
+@media (max-width: 900px) {
+  body { padding: 20px 12px; }
+  .col-headers, .step { grid-template-columns: 100px 160px 130px 180px 160px; }
+  .concept-grid { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<h1>Arsitektur &amp; Distributed Tracing</h1>
+<p class="tagline">Demo Aplikasi Pajak &nbsp;·&nbsp; RabbitMQ back-and-forth messaging &nbsp;·&nbsp; Elastic APM end-to-end distributed tracing</p>
+
+<!-- ================================================================ -->
+<!-- DIAGRAM 1: ARCHITECTURE                                           -->
+<!-- ================================================================ -->
+<section>
+<h2>Diagram 1 — Arsitektur Sistem</h2>
+<p class="desc">Lima service berkomunikasi via HTTP dan AMQP (RabbitMQ). <strong>CalculatorApi</strong> adalah engine kalkulasi pajak yang dipanggil via AMQP RPC oleh TaxApi maupun ReportProcessor. Semua service mengirim trace data ke <strong>Elastic APM</strong>.</p>
+
+<svg viewBox="0 0 1060 510" xmlns="http://www.w3.org/2000/svg"
+     font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
+
+  <defs>
+    <!-- Arrowhead markers -->
+    <marker id="ah-blue"   markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#58a6ff"/></marker>
+    <marker id="ah-green"  markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#3fb950"/></marker>
+    <marker id="ah-orange" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#ffa657"/></marker>
+    <marker id="ah-purple" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#bc8cff"/></marker>
+    <marker id="ah-red"    markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#ff7b72"/></marker>
+    <marker id="ah-gold"   markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#e3b341"/></marker>
+    <marker id="ah-gray"   markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto"><polygon points="0 0,8 3,0 6" fill="#555"/></marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1060" height="510" fill="#0d1117" rx="12"/>
+
+  <!-- APM Banner -->
+  <rect x="14" y="12" width="1032" height="42" rx="6" fill="#1a1c08" stroke="#e3b341" stroke-width="1.5" stroke-dasharray="6,4"/>
+  <text x="530" y="30" text-anchor="middle" fill="#e3b341" font-size="12" font-weight="700">ELASTIC APM SERVER</text>
+  <text x="530" y="46" text-anchor="middle" fill="#7a6800" font-size="10">Semua service mengirim trace data (transactions, spans, errors) ke sini untuk distributed tracing end-to-end</text>
+
+  <!-- Dashed lines to APM from each service -->
+  <path d="M 85,140 L 85,54"   stroke="#e3b341" stroke-width="1" stroke-dasharray="3,5" opacity="0.45"/>
+  <path d="M 300,115 L 300,54" stroke="#e3b341" stroke-width="1" stroke-dasharray="3,5" opacity="0.45"/>
+  <path d="M 860,115 L 860,54" stroke="#e3b341" stroke-width="1" stroke-dasharray="3,5" opacity="0.45"/>
+  <path d="M 312,365 L 312,54" stroke="#e3b341" stroke-width="1" stroke-dasharray="3,5" opacity="0.45"/>
+
+  <!-- ===== SERVICE BOXES ===== -->
+
+  <!-- Browser -->
+  <rect x="22" y="140" width="126" height="68" rx="8" fill="#0d1e33" stroke="#58a6ff" stroke-width="2"/>
+  <text x="85" y="165" text-anchor="middle" fill="#58a6ff" font-size="13" font-weight="700">Browser</text>
+  <text x="85" y="181" text-anchor="middle" fill="#3a6080" font-size="10">React 18 + Vite</text>
+  <text x="85" y="196" text-anchor="middle" fill="#3a6080" font-size="10">@elastic/apm-rum</text>
+
+  <!-- TaxApi -->
+  <rect x="192" y="115" width="172" height="76" rx="8" fill="#0d1f0d" stroke="#3fb950" stroke-width="2"/>
+  <text x="278" y="141" text-anchor="middle" fill="#3fb950" font-size="13" font-weight="700">TaxApi</text>
+  <text x="278" y="158" text-anchor="middle" fill="#2a6630" font-size="10">.NET 9 Minimal API  :5001</text>
+  <text x="278" y="173" text-anchor="middle" fill="#2a6630" font-size="10">CRUD + messaging + RPC client</text>
+  <text x="278" y="187" text-anchor="middle" fill="#2a6630" font-size="10">AddAllElasticApm()</text>
+
+  <!-- CalculatorApi -->
+  <rect x="790" y="115" width="250" height="76" rx="8" fill="#2a0d0d" stroke="#ff7b72" stroke-width="2"/>
+  <text x="915" y="141" text-anchor="middle" fill="#ff7b72" font-size="13" font-weight="700">CalculatorApi</text>
+  <text x="915" y="158" text-anchor="middle" fill="#883030" font-size="10">.NET 9 Background Service  :5003</text>
+  <text x="915" y="173" text-anchor="middle" fill="#883030" font-size="10">PPh21/23, PPN, PPh-Final</text>
+  <text x="915" y="187" text-anchor="middle" fill="#883030" font-size="10">AddAllElasticApm()</text>
+
+  <!-- RabbitMQ -->
+  <rect x="430" y="260" width="175" height="72" rx="8" fill="#2a1a05" stroke="#ffa657" stroke-width="2"/>
+  <text x="517" y="286" text-anchor="middle" fill="#ffa657" font-size="13" font-weight="700">RabbitMQ</text>
+  <text x="517" y="302" text-anchor="middle" fill="#8a5020" font-size="10">AMQP :5672</text>
+  <text x="517" y="317" text-anchor="middle" fill="#8a5020" font-size="10">Management :15672</text>
+
+  <!-- ReportProcessor -->
+  <rect x="192" y="365" width="200" height="76" rx="8" fill="#1a0d2a" stroke="#bc8cff" stroke-width="2"/>
+  <text x="292" y="391" text-anchor="middle" fill="#bc8cff" font-size="13" font-weight="700">ReportProcessor</text>
+  <text x="292" y="407" text-anchor="middle" fill="#6a3a9a" font-size="10">.NET 9 Worker Service</text>
+  <text x="292" y="422" text-anchor="middle" fill="#6a3a9a" font-size="10">Validasi laporan SPT</text>
+  <text x="292" y="437" text-anchor="middle" fill="#6a3a9a" font-size="10">AddElasticApm()</text>
+
+  <!-- Elasticsearch -->
+  <rect x="790" y="380" width="250" height="60" rx="8" fill="#201800" stroke="#e3b341" stroke-width="2"/>
+  <text x="915" y="406" text-anchor="middle" fill="#e3b341" font-size="13" font-weight="700">Elasticsearch</text>
+  <text x="915" y="422" text-anchor="middle" fill="#7a6000" font-size="10">Cloud  •  pajak-taxpayers/calculations/reports/notifications</text>
+
+  <!-- ===== ARROWS ===== -->
+
+  <!-- 1. Browser → TaxApi (HTTP) -->
+  <path d="M 148,174 L 192,174" stroke="#58a6ff" stroke-width="2" fill="none" marker-end="url(#ah-blue)"/>
+  <text x="170" y="168" text-anchor="middle" fill="#58a6ff" font-size="10.5" font-weight="600">HTTP</text>
+
+  <!-- 2. TaxApi ↔ CalculatorApi (AMQP RPC for calculations) — double line above services -->
+  <path d="M 364,138 L 790,138" stroke="#ff7b72" stroke-width="1.5" fill="none" stroke-dasharray="7,3" marker-end="url(#ah-red)"/>
+  <path d="M 790,153 L 364,153" stroke="#ff7b72" stroke-width="1.5" fill="none" stroke-dasharray="7,3" marker-end="url(#ah-red)"/>
+  <rect x="487" y="122" width="186" height="16" rx="3" fill="#0d1117"/>
+  <text x="580" y="134" text-anchor="middle" fill="#ff7b72" font-size="10.5">AMQP RPC  pajak.calculate.*</text>
+
+  <!-- 3a. TaxApi → RabbitMQ (PUBLISH laporan.submitted) -->
+  <path d="M 330,186 C 370,240 430,260 430,296" stroke="#3fb950" stroke-width="2" fill="none" marker-end="url(#ah-green)"/>
+  <rect x="324" y="222" width="96" height="30" rx="3" fill="#0d1117"/>
+  <text x="372" y="235" text-anchor="middle" fill="#3fb950" font-size="10" font-weight="600">① PUBLISH</text>
+  <text x="372" y="248" text-anchor="middle" fill="#2a6630" font-size="9">laporan.submitted</text>
+
+  <!-- 3b. RabbitMQ → TaxApi (CONSUME laporan.result) — return path -->
+  <path d="M 430,284 C 415,250 360,200 364,191" stroke="#3fb950" stroke-width="1.5" fill="none" stroke-dasharray="5,3" marker-end="url(#ah-green)"/>
+  <rect x="350" y="255" width="80" height="28" rx="3" fill="#0d1117"/>
+  <text x="390" y="268" text-anchor="middle" fill="#3fb950" font-size="10">④ CONSUME</text>
+  <text x="390" y="279" text-anchor="middle" fill="#2a6630" font-size="9">laporan.result</text>
+
+  <!-- 4a. RabbitMQ → ReportProcessor (CONSUME laporan.submitted) -->
+  <path d="M 470,332 C 450,360 430,370 392,385" stroke="#bc8cff" stroke-width="2" fill="none" marker-end="url(#ah-purple)"/>
+  <rect x="392" y="343" width="88" height="30" rx="3" fill="#0d1117"/>
+  <text x="436" y="356" text-anchor="middle" fill="#bc8cff" font-size="10" font-weight="600">② CONSUME</text>
+  <text x="436" y="368" text-anchor="middle" fill="#6a3a9a" font-size="9">laporan.submitted</text>
+
+  <!-- 4b. ReportProcessor → RabbitMQ (PUBLISH laporan.result) — return path -->
+  <path d="M 392,398 C 415,380 440,365 468,345" stroke="#bc8cff" stroke-width="1.5" fill="none" stroke-dasharray="5,3" marker-end="url(#ah-purple)"/>
+  <rect x="466" y="390" width="78" height="28" rx="3" fill="#0d1117"/>
+  <text x="505" y="402" text-anchor="middle" fill="#bc8cff" font-size="10">③ PUBLISH</text>
+  <text x="505" y="413" text-anchor="middle" fill="#6a3a9a" font-size="9">laporan.result</text>
+
+  <!-- 5. ReportProcessor → CalculatorApi (AMQP RPC validation) — bottom path -->
+  <path d="M 392,415 L 1040,415 L 1040,191" stroke="#ff7b72" stroke-width="1.5" fill="none" stroke-dasharray="7,3" marker-end="url(#ah-red)"/>
+  <path d="M 1046,191 L 1046,428 L 392,428" stroke="#ff7b72" stroke-width="1.5" fill="none" stroke-dasharray="7,3" marker-end="url(#ah-red)"/>
+  <rect x="610" y="400" width="198" height="15" rx="3" fill="#0d1117"/>
+  <text x="709" y="411" text-anchor="middle" fill="#ff7b72" font-size="10.5">AMQP RPC  pajak.validate.*</text>
+
+  <!-- 6. TaxApi → Elasticsearch (dashed gray) -->
+  <path d="M 364,173 L 790,405" stroke="#555" stroke-width="1" fill="none" stroke-dasharray="4,4" marker-end="url(#ah-gray)"/>
+  <rect x="540" y="270" width="78" height="14" rx="3" fill="#0d1117"/>
+  <text x="579" y="281" text-anchor="middle" fill="#555" font-size="9.5">Read / Write</text>
+
+  <!-- Queue legend boxes (bottom) -->
+  <rect x="14" y="468" width="1032" height="32" rx="4" fill="#161b22"/>
+  <text x="28" y="487" fill="#6e7681" font-size="10.5">Queues: </text>
+  <text x="82" y="487" fill="#ffa657" font-size="10.5" font-weight="600">pajak.laporan.submitted</text>
+  <text x="242" y="487" fill="#555" font-size="10.5"> · </text>
+  <text x="254" y="487" fill="#ffa657" font-size="10.5" font-weight="600">pajak.laporan.result</text>
+  <text x="388" y="487" fill="#555" font-size="10.5"> · </text>
+  <text x="400" y="487" fill="#ff7b72" font-size="10.5" font-weight="600">pajak.calculate.request</text>
+  <text x="573" y="487" fill="#555" font-size="10.5"> · </text>
+  <text x="585" y="487" fill="#ff7b72" font-size="10.5" font-weight="600">pajak.calculate.reply.taxapi</text>
+  <text x="791" y="487" fill="#555" font-size="10.5"> · </text>
+  <text x="803" y="487" fill="#ff7b72" font-size="10.5" font-weight="600">pajak.validate.request</text>
+
+</svg>
+
+<div class="legend">
+  <div class="li c-green"><div class="li-line solid" style="background:#3fb950"></div>Async PUBLISH/CONSUME (fire-and-forget)</div>
+  <div class="li c-red" ><div class="li-line dashed" style="color:#ff7b72"></div>AMQP RPC (request-reply dengan correlation ID)</div>
+  <div class="li" style="color:#555"><div class="li-line dashed" style="color:#555"></div>Data storage Elasticsearch</div>
+  <div class="li" style="color:#e3b341"><div class="li-line dashed" style="color:#e3b341"></div>Trace data ke Elastic APM</div>
+</div>
+</section>
+
+
+<!-- ================================================================ -->
+<!-- DIAGRAM 2: DISTRIBUTED TRACE FLOW                                 -->
+<!-- ================================================================ -->
+<section>
+<h2>Diagram 2 — Distributed Trace: Submit Laporan SPT</h2>
+<p class="desc">
+  Saat user klik "Submit", satu <strong>traceId unik</strong> dibuat oleh browser dan diteruskan ke setiap service berikutnya via header <code style="background:#21262d;padding:2px 6px;border-radius:3px;font-size:12px;color:#ff8c00">traceparent</code>.
+  Setiap service membuat <em>child transaction</em> dengan traceId yang sama — sehingga semua span dari 4 service berbeda muncul sebagai <strong>satu trace tunggal</strong> di APM UI.
+</p>
+
+<div class="flow-wrap">
+
+  <!-- Trace ID Bar -->
+  <div class="trace-bar">
+    <span class="trace-label">Trace ID (sama di semua service):</span>
+    <span class="trace-id">7152c87c4d97eaf4a41c8b6f8ce4434a</span>
+    <span class="trace-note">→ dibuat oleh browser saat halaman dimuat, diwariskan ke setiap hop</span>
+  </div>
+
+  <!-- Column Headers -->
+  <div class="col-headers">
+    <div class="col-hdr c-browser" style="background:#0d1e33">🌐 Browser</div>
+    <div class="col-hdr c-taxapi"  style="background:#0d1f0d">⚙️ TaxApi</div>
+    <div class="col-hdr c-rabbitmq" style="background:#2a1a05">📨 RabbitMQ</div>
+    <div class="col-hdr c-report" style="background:#1a0d2a">🔍 ReportProcessor</div>
+    <div class="col-hdr c-calc"   style="background:#2a0d0d">🧮 CalculatorApi</div>
+  </div>
+
+  <div class="steps">
+
+    <!-- STEP 1: Browser sends HTTP request -->
+    <div class="step">
+      <div class="cell" style="background:#0d1e3322">
+        <div style="display:flex;flex-direction:column;gap:8px;width:100%">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div class="step-num num-browser">1</div>
+            <div class="action bg-browser c-browser" style="border-left-color:#58a6ff">
+              <div class="action-title">POST /api/reports/{id}/submit</div>
+              <div class="action-sub">User klik tombol "Submit"</div>
+            </div>
+          </div>
+          <div class="tp-wrap" style="padding:0 4px">
+            <div class="tp-label">HTTP Header (otomatis oleh RUM agent)</div>
+            <div class="tp">
+              <span class="version">00-</span><span class="tid">7152c87c4d97eaf4a41c8b6f8ce4434a</span>-<span class="sid">a1b2c3d4e5f6a7b8</span>-<span class="flags">01</span>
+            </div>
+            <div class="tp-direction"><span class="arrow-icon">→</span> dikirim ke TaxApi</div>
+          </div>
+        </div>
+      </div>
+      <div class="cell c-taxapi" style="background:#0a180a">
+        <div style="font-size:10px;color:#2a6630;text-align:center">
+          ← menerima HTTP request<br>dengan header traceparent
+        </div>
+      </div>
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+    </div>
+
+    <!-- STEP 2: TaxApi processes — creates child transaction -->
+    <div class="step">
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+      <div class="cell" style="background:#0d1f0d22">
+        <div style="display:flex;flex-direction:column;gap:6px;width:100%">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div class="step-num num-taxapi">2</div>
+            <div class="action bg-taxapi c-taxapi" style="border-left-color:#3fb950">
+              <div class="action-title">Child Transaction dibuat</div>
+              <div class="action-sub">APM membaca traceparent → traceId sama dengan browser</div>
+            </div>
+          </div>
+          <div style="padding:0 4px;font-size:10px;color:#2a6630;line-height:1.5">
+            • Update Elasticsearch: status = <em>Submitted</em><br>
+            • Tandai <code style="background:#21262d;padding:1px 4px;border-radius:2px;color:#ff8c00;font-size:9px">IsLate</code> jika melewati deadline
+          </div>
+        </div>
+      </div>
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+    </div>
+
+    <!-- STEP 3: TaxApi PUBLISH to RabbitMQ -->
+    <div class="step">
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+      <div class="cell" style="background:#0d1f0d22">
+        <div class="action bg-taxapi c-taxapi" style="border-left-color:#3fb950;margin:auto 0;width:100%">
+          <div class="action-title">PUBLISH pajak.laporan.submitted</div>
+          <div class="action-sub">CaptureSpan("RabbitMQ PUBLISH")</div>
+        </div>
+      </div>
+      <div class="cell" style="background:#2a1a0522">
+        <div style="display:flex;flex-direction:column;gap:8px;width:100%">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div class="step-num num-rabbitmq">3</div>
+            <div class="action bg-rabbitmq c-rabbitmq" style="border-left-color:#ffa657">
+              <div class="action-title">Message diterima</div>
+              <div class="action-sub">Menunggu consumer</div>
+            </div>
+          </div>
+          <div class="tp-wrap" style="padding:0 4px">
+            <div class="tp-label">AMQP Header (manual oleh TaxApi)</div>
+            <div class="tp">
+              elastic-apm-traceparent:<br>
+              <span class="version">00-</span><span class="tid">7152c87c4d97eaf4a41c8b6f8ce4434a</span>-<span class="sid">f1e2d3c4b5a6</span>-<span class="flags">01</span>
+            </div>
+            <div class="tp-direction"><span class="arrow-icon">→</span> akan dibaca ReportProcessor</div>
+          </div>
+        </div>
+      </div>
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+    </div>
+
+    <!-- STEP 4: ReportProcessor CONSUME + validates via CalculatorApi RPC -->
+    <div class="step">
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+      <div class="cell" style="background:#2a1a0522">
+        <div style="font-size:10px;color:#8a5020;text-align:center">message di-deliver ke consumer</div>
+      </div>
+      <div class="cell" style="background:#1a0d2a22">
+        <div style="display:flex;flex-direction:column;gap:6px;width:100%">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div class="step-num num-report">4</div>
+            <div class="action bg-report c-report" style="border-left-color:#bc8cff">
+              <div class="action-title">Child Transaction dibuat</div>
+              <div class="action-sub">TryDeserializeFromString(header) → traceId sama!</div>
+            </div>
+          </div>
+          <div style="padding:0 4px">
+            <div class="tp-wrap">
+              <div class="tp-label">Kirim AMQP RPC ke CalculatorApi</div>
+              <div class="tp">
+                elastic-apm-traceparent:<br>
+                <span class="version">00-</span><span class="tid">7152c87c4d97eaf4a41c8b6f8ce4434a</span>-<span class="sid">9a8b7c6d</span>-<span class="flags">01</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="cell" style="background:#2a0d0d22">
+        <div style="display:flex;flex-direction:column;gap:6px;width:100%">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div class="step-num num-calc">4b</div>
+            <div class="action bg-calc c-calc" style="border-left-color:#ff7b72">
+              <div class="action-title">Validasi laporan</div>
+              <div class="action-sub">pajak.validate.request</div>
+            </div>
+          </div>
+          <div style="padding:0 4px;font-size:10px;color:#883030;line-height:1.5">
+            Child transaction dari trace ReportProcessor<br>
+            Reply: <code style="background:#21262d;padding:1px 4px;border-radius:2px;color:#3fb950;font-size:9px">{ IsValid: true }</code>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 5: ReportProcessor PUBLISH result -->
+    <div class="step">
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+      <div class="cell" style="background:#2a1a0522">
+        <div style="display:flex;flex-direction:column;gap:8px;width:100%">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div class="step-num num-rabbitmq">5</div>
+            <div class="action bg-rabbitmq c-rabbitmq" style="border-left-color:#ffa657">
+              <div class="action-title">Message result diterima</div>
+              <div class="action-sub">pajak.laporan.result</div>
+            </div>
+          </div>
+          <div class="tp-wrap" style="padding:0 4px">
+            <div class="tp-label">AMQP Header dari ReportProcessor</div>
+            <div class="tp">
+              elastic-apm-traceparent:<br>
+              <span class="version">00-</span><span class="tid">7152c87c4d97eaf4a41c8b6f8ce4434a</span>-<span class="sid">1c2d3e4f</span>-<span class="flags">01</span>
+            </div>
+            <div class="tp-direction"><span class="arrow-icon">→</span> akan dibaca TaxApi</div>
+          </div>
+        </div>
+      </div>
+      <div class="cell" style="background:#1a0d2a22">
+        <div class="action bg-report c-report" style="border-left-color:#bc8cff;margin:auto 0;width:100%">
+          <div class="action-title">PUBLISH pajak.laporan.result</div>
+          <div class="action-sub">IsApproved: true / false + RejectionReason</div>
+        </div>
+      </div>
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+    </div>
+
+    <!-- STEP 6: TaxApi CONSUME result — final child transaction -->
+    <div class="step">
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+      <div class="cell" style="background:#0d1f0d22">
+        <div style="display:flex;flex-direction:column;gap:6px;width:100%">
+          <div style="display:flex;align-items:center;gap:6px">
+            <div class="step-num num-taxapi">6</div>
+            <div class="action bg-taxapi c-taxapi" style="border-left-color:#3fb950">
+              <div class="action-title">Child Transaction dibuat</div>
+              <div class="action-sub">TryDeserializeFromString(header) → traceId sama!</div>
+            </div>
+          </div>
+          <div style="padding:0 4px;font-size:10px;color:#2a6630;line-height:1.6">
+            • Update Elasticsearch: status = <em>Approved</em> / <em>Rejected</em><br>
+            • Simpan ProcessedAt timestamp<br>
+            • Buat notifikasi untuk wajib pajak
+          </div>
+        </div>
+      </div>
+      <div class="cell" style="background:#2a1a0522">
+        <div style="font-size:10px;color:#8a5020;text-align:center">message di-deliver ke TaxApi consumer</div>
+      </div>
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+      <div class="cell"><div class="arrow-cell" style="color:#30363d;font-size:13px">–</div></div>
+    </div>
+
+  </div><!-- .steps -->
+</div><!-- .flow-wrap -->
+</section>
+
+
+<!-- ================================================================ -->
+<!-- DIAGRAM 3: APM WATERFALL VIEW                                     -->
+<!-- ================================================================ -->
+<section>
+<h2>Diagram 3 — Tampilan APM Waterfall (hasil nyata)</h2>
+<p class="desc">Di Elastic APM UI, satu trace ID menghasilkan waterfall seperti ini. Semua span dari 3 service berbeda tersusun dalam satu timeline karena <strong>traceId yang sama</strong>.</p>
+
+<div class="waterfall">
+  <div class="wf-header">
+    Trace ID: <strong>7152c87c4d97eaf4a41c8b6f8ce4434a</strong> &nbsp;·&nbsp; Total duration: ~2,300 ms
+  </div>
+
+  <!-- Browser -->
+  <div class="wf-row">
+    <div class="wf-service c-browser">pajak-frontend <div class="wf-name">route-change</div></div>
+    <div class="wf-bar-wrap">
+      <div class="wf-bar" style="background:#1c3a5a;color:#58a6ff;width:100%">
+        <span>Click - Submit button &nbsp;(171 ms)</span>
+      </div>
+    </div>
+    <div class="wf-duration c-browser">171 ms</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-service c-browser" style="padding-left:24px">↳ XHR</div>
+    <div class="wf-bar-wrap">
+      <div class="wf-bar" style="background:#1a3050;color:#4a8ab0;width:97%;margin-left:3%">
+        <span>POST /api/reports/{id}/submit &nbsp;(168 ms)</span>
+      </div>
+    </div>
+    <div class="wf-duration">168 ms</div>
+  </div>
+
+  <!-- TaxApi HTTP -->
+  <div class="wf-row">
+    <div class="wf-service c-taxapi">pajak-taxapi <div class="wf-name">HTTP transaction</div></div>
+    <div class="wf-bar-wrap">
+      <div class="wf-bar" style="background:#0d3a0d;color:#3fb950;width:94%;margin-left:3%">
+        <span>POST /api/reports/{id}/submit &nbsp;(153 ms)</span>
+      </div>
+    </div>
+    <div class="wf-duration c-taxapi">153 ms</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-service c-taxapi" style="padding-left:24px">↳ Span</div>
+    <div class="wf-bar-wrap">
+      <div class="wf-bar" style="background:#0a2a0a;color:#2a8030;width:30%;margin-left:5%">
+        <span>GET Elasticsearch (read report) &nbsp;(29 ms)</span>
+      </div>
+    </div>
+    <div class="wf-duration">29 ms</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-service c-taxapi" style="padding-left:24px">↳ Span</div>
+    <div class="wf-bar-wrap">
+      <div class="wf-bar" style="background:#0a2a0a;color:#2a8030;width:75%;margin-left:12%">
+        <span>PUT Elasticsearch (status → Submitted) &nbsp;(123 ms)</span>
+      </div>
+    </div>
+    <div class="wf-duration">123 ms</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-service c-taxapi" style="padding-left:24px">↳ Span</div>
+    <div class="wf-bar-wrap">
+      <div class="wf-bar" style="background:#0a2a0a;color:#2a8030;width:3%;margin-left:87%">
+        <span style="white-space:nowrap;position:absolute;left:-200px">AMQP PUBLISH pajak.laporan.submitted</span>
+      </div>
+    </div>
+    <div class="wf-duration">0.5 ms</div>
+  </div>
+
+  <!-- ReportProcessor -->
+  <div class="wf-row">
+    <div class="wf-service c-report">pajak-report-processor <div class="wf-name">AMQP consumer</div></div>
+    <div class="wf-bar-wrap">
+      <div class="wf-bar" style="background:#200d33;color:#bc8cff;width:88%;margin-left:9%">
+        <span>CONSUME pajak.laporan.submitted &nbsp;(2,014 ms)</span>
+      </div>
+    </div>
+    <div class="wf-duration c-report">2,014 ms</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-service c-report" style="padding-left:24px">↳ Span</div>
+    <div class="wf-bar-wrap">
+      <div class="wf-bar" style="background:#1a0a2a;color:#8a5ab0;width:5%;margin-left:10%">
+        <span style="white-space:nowrap;position:absolute;left:-20px">AMQP RPC ValidasiLaporan</span>
+      </div>
+    </div>
+    <div class="wf-duration">0.1 ms</div>
+  </div>
+
+  <!-- TaxApi CONSUME -->
+  <div class="wf-row">
+    <div class="wf-service c-taxapi">pajak-taxapi <div class="wf-name">AMQP consumer</div></div>
+    <div class="wf-bar-wrap">
+      <div class="wf-bar" style="background:#0d3a0d;color:#3fb950;width:8%;margin-left:90%">
+        <span style="white-space:nowrap;position:absolute;left:-260px">CONSUME pajak.laporan.result &nbsp;(95 ms)</span>
+      </div>
+    </div>
+    <div class="wf-duration c-taxapi">95 ms</div>
+  </div>
+  <div class="wf-row">
+    <div class="wf-service c-taxapi" style="padding-left:24px">↳ Span</div>
+    <div class="wf-bar-wrap">
+      <div class="wf-bar" style="background:#0a2a0a;color:#2a8030;width:3%;margin-left:91%">
+        <span style="white-space:nowrap;position:absolute;left:-140px">ES UpdateReport &nbsp;(31 ms)</span>
+      </div>
+    </div>
+    <div class="wf-duration">31 ms</div>
+  </div>
+
+</div>
+</section>
+
+
+<!-- ================================================================ -->
+<!-- CONCEPT BOX                                                        -->
+<!-- ================================================================ -->
+<section>
+<h2>Konsep Kunci: Bagaimana traceId Tetap Sama?</h2>
+<p class="desc">Setiap service membaca header <code style="background:#21262d;padding:2px 6px;border-radius:3px;font-size:12px;color:#ff8c00">traceparent</code> dari request/message yang masuk, lalu membuat <em>child transaction</em> yang mewarisi traceId. Jika header tidak ada, dibuat trace baru.</p>
+
+<div class="concept">
+  <h3>Mekanisme per Layer</h3>
+  <div class="concept-grid">
+
+    <div class="concept-item">
+      <div class="concept-icon">🌐</div>
+      <div>
+        <h4 class="c-browser">Browser → HTTP</h4>
+        <p>RUM agent menambahkan header <code>traceparent</code> secara otomatis ke semua Axios request berdasarkan konfigurasi <code>distributedTracingOrigins</code>. Tidak perlu kode manual.</p>
+      </div>
+    </div>
+
+    <div class="concept-item">
+      <div class="concept-icon">⚙️</div>
+      <div>
+        <h4 class="c-taxapi">ASP.NET Core → HTTP</h4>
+        <p><code>AddAllElasticApm()</code> otomatis membaca header <code>traceparent</code> dari setiap HTTP request dan membuat child transaction. Seluruh proses transparan tanpa kode tambahan.</p>
+      </div>
+    </div>
+
+    <div class="concept-item">
+      <div class="concept-icon">📤</div>
+      <div>
+        <h4 class="c-taxapi">Publish ke RabbitMQ</h4>
+        <p>Header <code>elastic-apm-traceparent</code> ditulis manual ke AMQP message properties. Nilainya diambil dari <code>span.OutgoingDistributedTracingData?.SerializeToString()</code>.</p>
+      </div>
+    </div>
+
+    <div class="concept-item">
+      <div class="concept-icon">📥</div>
+      <div>
+        <h4 class="c-report">Consume dari RabbitMQ</h4>
+        <p>Header dibaca manual, di-parse dengan <code>DistributedTracingData.TryDeserializeFromString()</code>, lalu dipakai sebagai parameter ke <code>Agent.Tracer.StartTransaction(..., tracingData)</code>.</p>
+      </div>
+    </div>
+
+    <div class="concept-item">
+      <div class="concept-icon">🔑</div>
+      <div>
+        <h4>Format traceparent (W3C)</h4>
+        <p>
+          <code>00-</code><code style="color:#ff8c00">7152c87c...4434a</code><code>-a1b2c3d4-01</code><br>
+          <span style="font-size:11px;color:#555">version · traceId (16 bytes) · parentSpanId (8 bytes) · flags</span><br>
+          traceId selalu sama; hanya parentSpanId yang berubah per hop.
+        </p>
+      </div>
+    </div>
+
+    <div class="concept-item">
+      <div class="concept-icon">🆚</div>
+      <div>
+        <h4>Trace baru vs. child transaction</h4>
+        <p><code>TryDeserializeFromString()</code> memvalidasi string. Jika valid → child transaction (traceId diwarisi). Jika null atau corrupt → trace baru (traceId random). Tidak ada exception.</p>
+      </div>
+    </div>
+
+  </div>
+</div>
+</section>
+
+</body>
+</html>
