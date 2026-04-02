@@ -25,8 +25,8 @@ Setiap request diberi satu `trace-id` unik. Saat melintas antar service (HTTP, m
 
 ```
 traceparent: 00-<trace-id>-<parent-id>-01
-              â”‚   16 bytes   8 bytes   flags
-              â””â”€ versi W3C
+              │   16 bytes   8 bytes   flags
+              └─ versi W3C
 ```
 
 Tiga komponen utama:
@@ -47,7 +47,7 @@ Tiga komponen utama:
 <!-- TaxApi.csproj & CalculatorApi.csproj -->
 <PackageReference Include="Elastic.Apm.NetCoreAll" Version="1.34.1" />
 
-<!-- ReportProcessor.csproj (Worker Service â€” tidak ada HTTP pipeline) -->
+<!-- ReportProcessor.csproj (Worker Service — tidak ada HTTP pipeline) -->
 <PackageReference Include="Elastic.Apm.Extensions.Hosting" Version="1.34.1" />
 ```
 
@@ -56,7 +56,7 @@ Perbedaan:
 | Package                         | Digunakan untuk                          | Yang di-auto-instrument                    |
 |---------------------------------|------------------------------------------|--------------------------------------------|
 | `Elastic.Apm.NetCoreAll`        | ASP.NET Core (ada HTTP pipeline)         | HTTP requests, Elasticsearch, SQL, dsb.    |
-| `Elastic.Apm.Extensions.Hosting`| Worker Service (tidak ada HTTP pipeline) | Hanya DI hosting â€” transaction harus manual|
+| `Elastic.Apm.Extensions.Hosting`| Worker Service (tidak ada HTTP pipeline) | Hanya DI hosting — transaction harus manual|
 
 ### Frontend (React + TypeScript)
 
@@ -83,12 +83,12 @@ environment:
   - ElasticApm__LogLevel=Error                     # Log internal APM agent
 ```
 
-Konvensi .NET: `ElasticApm__ServiceName` â†’ `ElasticApm:ServiceName` di `IConfiguration`.
+Konvensi .NET: `ElasticApm__ServiceName` → `ElasticApm:ServiceName` di `IConfiguration`.
 
 ### Frontend (build args Vite env vars)
 
 ```yaml
-# docker-compose.yml â€” build args karena Vite bake env var saat build, bukan runtime
+# docker-compose.yml — build args karena Vite bake env var saat build, bukan runtime
 build:
   args:
     - VITE_ELASTIC_APM_SERVER_URL=https://<apm-server>:443
@@ -117,7 +117,7 @@ RUN npm run build
 ### Inisialisasi (src/apm.ts)
 
 ```typescript
-// src/apm.ts â€” HARUS diimport sebelum semua module lain
+// src/apm.ts — HARUS diimport sebelum semua module lain
 import { init as apmInit } from '@elastic/apm-rum';
 
 export const apm = apmInit({
@@ -137,8 +137,8 @@ export const apm = apmInit({
 ```
 
 ```typescript
-// src/main.tsx â€” import apm PERTAMA sebelum React
-import './apm';   // â† harus baris pertama
+// src/main.tsx — import apm PERTAMA sebelum React
+import './apm';   // ← harus baris pertama
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
@@ -279,7 +279,7 @@ public async Task PublishReportSubmittedAsync(ReportSubmittedMessage message)
 ```csharp
 private async Task OnReportResultReceived(object sender, BasicDeliverEventArgs args)
 {
-    // Baca traceparent dari header â€” ini menghubungkan trace dari ReportProcessor
+    // Baca traceparent dari header — ini menghubungkan trace dari ReportProcessor
     var traceparent = GetTraceparentFromHeaders(args.BasicProperties.Headers);
     var tracingData = DistributedTracingData.TryDeserializeFromString(traceparent);
 
@@ -287,7 +287,7 @@ private async Task OnReportResultReceived(object sender, BasicDeliverEventArgs a
     var transaction = Agent.Tracer.StartTransaction(
         "RabbitMQ CONSUME pajak.laporan.result",
         ApiConstants.TypeMessaging,
-        tracingData);   // â† ini yang menghubungkan trace lintas service
+        tracingData);   // ← ini yang menghubungkan trace lintas service
 
     try
     {
@@ -318,13 +318,13 @@ private async Task OnReportResultReceived(object sender, BasicDeliverEventArgs a
 
 ## 6. CalculatorApi Trace dari Header AMQP
 
-CalculatorApi tidak menerima HTTP request â€” ia hanya mendengarkan RabbitMQ.
+CalculatorApi tidak menerima HTTP request — ia hanya mendengarkan RabbitMQ.
 Setiap pesan yang masuk dimulai sebagai transaction baru yang di-link ke trace pengirim.
 
 ### Registrasi (Program.cs)
 
 ```csharp
-// Sama dengan TaxApi â€” AddAllElasticApm() mengaktifkan auto-instrumentation
+// Sama dengan TaxApi — AddAllElasticApm() mengaktifkan auto-instrumentation
 builder.Services.AddAllElasticApm();
 builder.Services.AddSingleton<TaxCalculatorService>();
 builder.Services.AddHostedService<CalculatorConsumerService>();
@@ -470,7 +470,7 @@ private async Task<(ReportResultMessage result, string? traceparent)> ProcessRep
 ## 8. Propagasi Traceparent via RabbitMQ
 
 Ini adalah inti dari distributed tracing lintas message queue.
-Standar W3C Trace Context tidak otomatis diembed di AMQP â€” harus dilakukan manual.
+Standar W3C Trace Context tidak otomatis diembed di AMQP — harus dilakukan manual.
 
 ### Pola Umum: PUBLISH (Pengirim)
 
@@ -513,39 +513,39 @@ var tracingData = DistributedTracingData.TryDeserializeFromString(traceparent);
 var transaction = Agent.Tracer.StartTransaction(
     "nama-operasi",
     ApiConstants.TypeMessaging,
-    tracingData);   // â† inilah yang menghubungkan trace lintas service
+    tracingData);   // ← inilah yang menghubungkan trace lintas service
 ```
 
 ### Alur Lengkap Header Propagasi
 
 ```
 Browser
-  â””â”€ [traceparent: 00-TRACE_ID-BROWSER_SPAN-01] â†’ Axios request ke TaxApi
+  └─ [traceparent: 00-TRACE_ID-BROWSER_SPAN-01] → Axios request ke TaxApi
 
 TaxApi (HTTP Transaction auto)
-  â””â”€ CaptureSpan("AMQP RPC pajak.calculate.request")
-      â””â”€ props.Headers["elastic-apm-traceparent"] = span.OutgoingDistributedTracingData
+  └─ CaptureSpan("AMQP RPC pajak.calculate.request")
+      └─ props.Headers["elastic-apm-traceparent"] = span.OutgoingDistributedTracingData
 
 CalculatorApi (consume pajak.calculate.request)
-  â””â”€ traceParent = headers["elastic-apm-traceparent"]
-  â””â”€ StartTransaction(..., DistributedTracingData.TryDeserializeFromString(traceParent))
-      â†’ Trace ID = TRACE_ID yang sama dari Browser!
+  └─ traceParent = headers["elastic-apm-traceparent"]
+  └─ StartTransaction(..., DistributedTracingData.TryDeserializeFromString(traceParent))
+      → Trace ID = TRACE_ID yang sama dari Browser!
 
 TaxApi (HTTP Transaction)
-  â””â”€ CaptureSpan("RabbitMQ PUBLISH pajak.laporan.submitted")
-      â””â”€ props.Headers["elastic-apm-traceparent"] = span.OutgoingDistributedTracingData
+  └─ CaptureSpan("RabbitMQ PUBLISH pajak.laporan.submitted")
+      └─ props.Headers["elastic-apm-traceparent"] = span.OutgoingDistributedTracingData
 
 ReportProcessor (consume pajak.laporan.submitted)
-  â””â”€ traceParent = headers["elastic-apm-traceparent"]
-  â””â”€ StartTransaction(..., DistributedTracingData.TryDeserializeFromString(traceParent))
-  â””â”€ ValidasiLaporanAmqpAsync â†’ kirim ke pajak.validate.request dengan traceparent baru
+  └─ traceParent = headers["elastic-apm-traceparent"]
+  └─ StartTransaction(..., DistributedTracingData.TryDeserializeFromString(traceParent))
+  └─ ValidasiLaporanAmqpAsync → kirim ke pajak.validate.request dengan traceparent baru
 
 CalculatorApi (consume pajak.validate.request)
-  â””â”€ Linked ke trace ReportProcessor
+  └─ Linked ke trace ReportProcessor
 
-ReportProcessor â†’ TaxApi (pajak.laporan.result)
-  â””â”€ outgoingTraceparent = transaction.OutgoingDistributedTracingData
-  â””â”€ TaxApi.StartTransaction(..., TryDeserializeFromString(outgoingTraceparent))
+ReportProcessor → TaxApi (pajak.laporan.result)
+  └─ outgoingTraceparent = transaction.OutgoingDistributedTracingData
+  └─ TaxApi.StartTransaction(..., TryDeserializeFromString(outgoingTraceparent))
 ```
 
 ---
@@ -577,7 +577,7 @@ graph LR
     end
 
     subgraph RP["ReportProcessor (Worker)"]
-        AH["AddElasticApm()\n(Hosting â€” no HTTP)"]
+        AH["AddElasticApm()\n(Hosting — no HTTP)"]
         WK["Worker.cs\nManual Transaction:\nConsume AMQP"]
         MS["RabbitMqService\nManual Span:\nValidate RPC"]
         AH --> WK
@@ -603,7 +603,7 @@ graph LR
 
 ---
 
-### Diagram 2: Alur Distributed Trace â€” Submit SPT
+### Diagram 2: Alur Distributed Trace — Submit SPT
 
 ```mermaid
 sequenceDiagram
@@ -673,7 +673,7 @@ sequenceDiagram
 
 ---
 
-### Diagram 3: Alur Distributed Trace â€” Kalkulasi Pajak (RPC)
+### Diagram 3: Alur Distributed Trace — Kalkulasi Pajak (RPC)
 
 ```mermaid
 sequenceDiagram
@@ -728,8 +728,8 @@ sequenceDiagram
 
 **Aturan utama:**
 1. `AddAllElasticApm()` untuk service dengan HTTP pipeline, `AddElasticApm()` untuk Worker Service
-2. Selalu panggil `transaction.End()` di `finally` block â€” jika tidak, data tidak dikirim ke APM Server
+2. Selalu panggil `transaction.End()` di `finally` block — jika tidak, data tidak dikirim ke APM Server
 3. Teruskan traceparent via header AMQP (`elastic-apm-traceparent`) di setiap publish
 4. Baca dan parse traceparent saat consume untuk menghubungkan trace lintas service
 5. Frontend harus import `apm.ts` sebagai baris pertama di `main.tsx`
-6. Build arg Vite digunakan untuk `VITE_*` env vars â€” bukan runtime environment
+6. Build arg Vite digunakan untuk `VITE_*` env vars — bukan runtime environment
